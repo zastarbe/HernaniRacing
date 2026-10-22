@@ -30,8 +30,21 @@ namespace HernaniRacing
         public readonly NetClientCore Core = new NetClientCore();
 
         // datos guardados en el PC
-        public string host, password, nick;
-        public int port;
+        public string nick;
+        /// <summary>Usar el servidor por defecto (Resources/HernaniNet/server_default.json). Viene activado.</summary>
+        public bool useDefault = true;
+        /// <summary>Servidor escrito a mano en "Opciones de conexión".</summary>
+        public string customHost, customPassword;
+        public int customPort;
+        NetConfig.ServerDefaults defaults;
+
+        public bool HasDefault { get { return defaults != null && !string.IsNullOrEmpty(defaults.host); } }
+        bool UseDefaultNow { get { return HasDefault && useDefault; } }
+        public string EffectiveHost { get { return (UseDefaultNow ? defaults.host : customHost ?? "").Trim(); } }
+        public int EffectivePort { get { return UseDefaultNow ? (defaults.port > 0 ? defaults.port : NetConfig.DefaultPort) : customPort; } }
+        string EffectivePassword { get { return UseDefaultNow ? defaults.password ?? "" : customPassword ?? ""; } }
+        public string DefaultLabel { get { return !HasDefault ? "" : (string.IsNullOrEmpty(defaults.name) ? defaults.host : defaults.name); } }
+        public string ServerLabel { get { return UseDefaultNow ? DefaultLabel + " (por defecto)" : EffectiveHost + ":" + EffectivePort; } }
         public int myColor = 0xD9141A;
         public string myCar = "turismo";
 
@@ -56,9 +69,11 @@ namespace HernaniRacing
             I = this;
             // si el juego pierde el foco (Alt+Tab) tiene que seguir enviando y recibiendo, o los demás verían el coche parado
             Application.runInBackground = true;
-            host = PlayerPrefs.GetString("net.host", NetConfig.DefaultHost);
-            port = PlayerPrefs.GetInt("net.port", NetConfig.DefaultPort);
-            password = PlayerPrefs.GetString("net.password", "");
+            defaults = NetConfig.LoadDefaults();
+            useDefault = PlayerPrefs.GetInt("net.useDefault", 1) == 1;
+            customHost = PlayerPrefs.GetString("net.host", "");
+            customPort = PlayerPrefs.GetInt("net.port", NetConfig.DefaultPort);
+            customPassword = PlayerPrefs.GetString("net.password", "");
             nick = PlayerPrefs.GetString("net.nick", "Piloto" + Random.Range(10, 99));
             myCar = PlayerPrefs.GetString("net.car", "turismo");
             myColor = PlayerPrefs.GetInt("net.color", 0xD9141A);
@@ -85,16 +100,23 @@ namespace HernaniRacing
             return (w.data.meta != null ? w.data.meta.generated : "") + "|" + w.graph.edges.Length + "|" + w.graph.nodes.Length;
         }
 
+        public void SaveConnectionPrefs()
+        {
+            PlayerPrefs.SetInt("net.useDefault", useDefault ? 1 : 0);
+            PlayerPrefs.SetString("net.host", (customHost ?? "").Trim());
+            PlayerPrefs.SetInt("net.port", customPort);
+            PlayerPrefs.SetString("net.password", customPassword ?? "");
+            PlayerPrefs.SetString("net.nick", nick ?? "");
+            PlayerPrefs.Save();
+        }
+
         public void Connect()
         {
-            PlayerPrefs.SetString("net.host", host.Trim());
-            PlayerPrefs.SetInt("net.port", port);
-            PlayerPrefs.SetString("net.password", password);
-            PlayerPrefs.SetString("net.nick", nick);
-            PlayerPrefs.Save();
+            if (Core.State != ClientState.Offline) return;
+            SaveConnectionPrefs();
             UpdateProfile(false);
-            Status = "Conectando con " + host + ":" + port + "...";
-            Core.Connect(host, port, password, DataSignature());
+            Status = "Conectando con " + ServerLabel + "...";
+            Core.Connect(EffectiveHost, EffectivePort, EffectivePassword, DataSignature());
             if (Core.State == ClientState.Offline) Status = Core.LastError;
         }
 
@@ -138,7 +160,7 @@ namespace HernaniRacing
         void Update()
         {
             Core.Poll();
-            if (Core.State == ClientState.Connecting) Status = "Conectando con " + host + ":" + port + "...";
+            if (Core.State == ClientState.Connecting) Status = "Conectando con " + ServerLabel + "...";
             else if (Core.State == ClientState.Connected) Status = "Conectado a " + Core.ServerName + " · ping " + Core.Ping + " ms";
             if (InRoom)
             {
@@ -194,13 +216,13 @@ namespace HernaniRacing
         }
 
         /// <summary>Ajustes de la sala a partir de lo elegido en el selector (sólo el líder).</summary>
-        public static RoomSettings MakeSettings(List<int> nodes, RaceSettings s, string circuitName)
+        public static RoomSettings MakeSettings(List<int> nodes, RaceSettings s, string circuitName, int freeStart)
         {
             return new RoomSettings
             {
                 nodes = nodes.ToArray(), laps = (byte)Mathf.Clamp(s.laps, 1, 20), opponents = (byte)Mathf.Clamp(s.opponents, 0, NetProto.MaxCarsPerRace - 1),
                 difficulty = (byte)Mathf.Clamp(s.difficulty, 0, 2), traffic = s.traffic, pedestrians = s.pedestrians,
-                freeTraffic = s.freeTraffic, freePedestrians = s.freePedestrians, aiCar = s.carId, freeStartNode = nodes.Count > 0 ? nodes[0] : -1,
+                freeTraffic = s.freeTraffic, freePedestrians = s.freePedestrians, aiCar = s.carId, freeStartNode = freeStart,
                 circuitName = circuitName ?? ""
             };
         }
@@ -218,8 +240,27 @@ namespace HernaniRacing
 
     public static class NetConfig
     {
-        /// <summary>Dirección por defecto del servidor (se puede cambiar en el juego; se guarda en el PC).</summary>
-        public const string DefaultHost = "";
         public const int DefaultPort = NetProto.DefaultPort;
+
+        /// <summary>
+        /// Servidor por defecto: Assets/HernaniRacing/Resources/HernaniNet/server_default.json
+        /// (no se sube a GitHub; hay un ejemplo en Server/server_default.example.json).
+        /// </summary>
+        [System.Serializable]
+        public class ServerDefaults
+        {
+            public string name = "";
+            public string host = "";
+            public int port = NetProto.DefaultPort;
+            public string password = "";
+        }
+
+        public static ServerDefaults LoadDefaults()
+        {
+            var ta = Resources.Load<TextAsset>("HernaniNet/server_default");
+            if (ta == null) return null;
+            try { return JsonUtility.FromJson<ServerDefaults>(ta.text); }
+            catch (System.Exception e) { Debug.LogWarning("server_default.json no válido: " + e.Message); return null; }
+        }
     }
 }

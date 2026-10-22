@@ -11,6 +11,20 @@ laterales quedan abiertas y la calzada va pegada al terreno real.
 También hay un modo **Paseo libre**: conduces por todo Hernani sin carrera, con tráfico y peatones que respetan
 las señales.
 
+## Novedades (versión 7): menús nuevos
+* **Pantalla de presentación**: de fondo, la cámara **sobrevuela Hernani a unos 300 m del suelo y a 300 km/h**, como en una película,
+  de barrio en barrio y al azar. Delante, los botones (**¡A CORRER!**, **PASEO LIBRE**, **JUGAR ONLINE**, **SALIR**) y tres tarjetas de resumen:
+  * **Coche**: el coche elegido en 3D (girando) y el botón *Cambiar coche*.
+  * **Circuito**: plano con el trazado, longitud, desnivel y barrios, y el botón *Cambiar circuito*.
+  * **Carrera**: vueltas, **rivales de la IA (ahora hasta 8)** y dificultad.
+* **Pantalla de coche**: todos los modelos dibujados en 3D con sus características (velocidad punta, aceleración, frenada, agarre, peso y medidas),
+  y 12 colores.
+* **Pantalla de circuito y carrera**: circuitos predefinidos sobre el mapa, circuito propio con 4 cruces, vueltas, IA y tráfico/peatones sí o no.
+* **Pantalla de paseo libre**: punto de salida (un cruce del mapa, un barrio o el centro de Hernani) y tráfico/peatones sí o no.
+* **Pantalla de jugar online**: el servidor por defecto ya viene configurado (sólo hay que escribir el nombre y conectar). Hay una pantalla de
+  *Opciones de conexión* para cambiarlo. Crear sala, entrar con código y salas abiertas, con la lista actualizada cada 2 segundos.
+* Todo lo elegido (coche, color, circuito, carrera, salida del paseo) **se guarda en el PC** para la próxima vez.
+
 ## Novedades (versión 6): multijugador online con servidor propio
 * **Hasta 8 jugadores por sala**, cada uno desde su casa y su PC, conectados a **tu propio servidor Ubuntu**.
 * **Carreras online** (con o sin coches de la IA, hasta 10 coches en total) y **paseo libre compartido** por todo el mapa.
@@ -34,7 +48,7 @@ las señales.
   y 1.221 tramos de sentido único.
 * **Nuevos circuitos predefinidos**: Hernani – Urnieta (10,4 km), Hernani – Astigarraga (7,4 km) y el **Rally Urumea** (19 km):
   sube el valle por la GI‑3410 hasta Ugaldetxo y vuelve por las pistas del monte.
-* El terreno se divide en **70 teselas de 1 km** (heightmap de 2 m/píxel). El selector permite alejar el zoom hasta ver toda el área, y el mapa del HUD
+* El terreno se divide en **70 teselas de 1 km** (heightmap de 2 m/píxel). El mapa de selección permite alejar el zoom hasta ver toda el área, y el mapa del HUD
   cubre todo el término.
 
 ## Novedades (versión 4)
@@ -81,17 +95,26 @@ Para un ejecutable: *File → Build Settings → Build*. Si los materiales salen
 
 ## 2. Cómo se juega
 
-### Selector de circuito (vista de mapa)
-* **Clic** en 4 cruces (puntos amarillos) **en el orden de carrera**. El circuito aparece al instante con:
-  longitud de vuelta, desnivel acumulado, pendiente máxima, cotas, longitud de cada tramo y calles por las que pasa.
-* **Retroceso** quita el último cruce; la ✕ de cada fila quita ese cruce.
+### Menús
+* **Presentación** (vuelo sobre Hernani): botones **¡A CORRER!** (carrera con lo que ves en las tarjetas), **PASEO LIBRE**, **JUGAR ONLINE** y **SALIR**.
+  Las tarjetas resumen el **coche**, el **circuito** y la **carrera**; en la de carrera se cambian las **vueltas** (1–20), los **rivales IA** (0–8)
+  y la **dificultad** (Fácil / Normal / Difícil).
+* **Coche** (*Cambiar coche*): clic en un modelo para elegirlo; a la derecha, su ficha y los colores. **LISTO** vuelve.
+* **Esc** vuelve a la pantalla anterior.
+
+### Pantalla de circuito y carrera (vista de mapa)
+* **Circuitos predefinidos**: un clic y el trazado aparece sobre el mapa.
+* **Tu circuito**: **clic** en 4 cruces (puntos amarillos) **en el orden de carrera**. Verás la longitud de vuelta, el desnivel acumulado,
+  la pendiente máxima, las cotas y las calles por las que pasa.
+* **Retroceso** quita el último cruce; la ✕ de cada fila quita ese cruce. **Aleatorio (aquí)** inventa un circuito donde estás mirando.
 * **Ratón**: arrastrar para mover y rueda para zoom · **WASD / flechas** para desplazarse, **Q / E** para el zoom y **Mayús** para ir más rápido.
-* Avisos: el selector te avisa si el trazado repite calle (ida y vuelta) o tiene un giro de 180º. Cambia el orden de los cruces para evitarlo.
-* Ajustes: **vueltas** (1–20), **rivales IA** (0–5) y **dificultad** (Fácil / Normal / Difícil).
-* **Coche** y **color**: elige el modelo. Verás sus datos (largo, masa, velocidad punta, agarre).
-* **Tráfico y peatones**: por defecto, en carrera el tráfico está **desactivado** y los peatones activados; en el paseo, ambos activados.
-* Botones **Circuitos predefinidos**, **Aleatorio** y **Borrar**. Después, **¡A CORRER!**
-* **PASEO LIBRE**: empieza junto al cruce 1 si lo has marcado; si no, en el centro de Hernani.
+* Avisos: te avisa si el trazado repite calle (ida y vuelta) o tiene un giro de 180º. Cambia el orden de los cruces para evitarlo.
+* **Tráfico y peatones** en la carrera: sí o no (por defecto, tráfico no y peatones sí).
+* **¡A CORRER!** empieza; **MENÚ PRINCIPAL** vuelve a la presentación.
+
+### Pantalla de paseo libre
+* **Salida**: clic en un cruce del mapa, o en un barrio de la lista, o *Centro de Hernani*.
+* **Tráfico y peatones**: sí o no. Después, **¡A PASEAR!**
 
 ### Circuitos predefinidos
 | Circuito | Cruces | Vuelta |
@@ -142,7 +165,7 @@ opciones para repetir la carrera o elegir otro circuito.
 ### Física justa
 * Todos los coches de la carrera (tú y la IA) usan el **mismo modelo**, con la misma masa, potencia, agarre y colisionadores. Nadie recibe
   ayudas: se ha quitado el *rubber band*, que aceleraba a la IA cuando iba por detrás.
-* Los coches del tráfico son cinemáticos: no te empujan, pero sí chocas con ellos. Si se lo pides, apágalos en el selector.
+* Los coches del tráfico son cinemáticos: no te empujan, pero sí chocas con ellos. Si quieres, apágalos en la pantalla del circuito o del paseo.
 * Las ruedas solo apoyan en el suelo, nunca sobre otro coche. Así nadie se «sube» encima de otro ni gana ventaja al chocar.
 * La IA respeta a los coches que lleva delante o al lado: cambia de carril para adelantar o levanta el pie,
   en vez de empujar. En un contacto, los dos coches se empujan con la misma fuerza.
@@ -219,12 +242,16 @@ Assets/HernaniRacing/
   Resources/HernaniCars/    cars.json + un JSON por coche (malla, colores, ruedas y física)
   Scripts/Runtime/
     GameBootstrap.cs        Punto de entrada: cámara, sol, niebla, carga y flujo del juego
+    MainMenu.cs             Menús: presentación con resúmenes, pantalla de coche y navegación entre pantallas
+    MenuState.cs            Lo elegido en los menús (coche, color, circuito, carrera, paseo) y su guardado en el PC
+    Flyover.cs              Vuelo cinematográfico sobre Hernani (fondo de los menús)
+    CarStudio.cs            Dibujos 3D de los coches para los menús (render a textura)
     HernaniData.cs          Carga de los JSON (JsonUtility) y del heightmap
     WorldBuilder.cs         Terreno, asfalto pegado al terreno, aceras, puentes, túneles, edificios, río
     TreeRenderer.cs         Árboles con GPU instancing por bloques
     RoadGraph.cs            Grafo viario: cruces, Dijkstra, búsquedas espaciales
     Circuit.cs              Circuito de 4 cruces: muestreo, trazada, perfil de velocidad, seguimiento
-    CircuitSelector.cs      Selector de cruces sobre el mapa (IMGUI)
+    CircuitSelector.cs      Pantallas de mapa: circuito y carrera / salida del paseo libre (IMGUI)
     CircuitVisuals.cs       Línea de salida/meta y pórtico (sin vallas ni bordillos)
     CarController.cs        Física de coche por raycast (suspensión, agarre, derrape)
     CarModels.cs            Carga de los modelos de coche y aplicación de su física
@@ -241,7 +268,7 @@ Assets/HernaniRacing/
     Shared/NetProtocol.cs   Protocolo de red (compartido con el servidor): mensajes, sala, estados de coche/tráfico/peatón
     Shared/NetClientCore.cs Cliente de red sin Unity: conexión, salas, reloj común, envío/recepción
     NetSession.cs           Conexión dentro del juego, perfil (nombre, coche, color) y arranque de partidas online
-    NetLobbyUI.cs           Panel «JUGAR ONLINE»: conectar, salas, jugadores
+    NetLobbyUI.cs           Pantalla «JUGAR ONLINE»: nombre, opciones de conexión, salas y sala
     NetWorldSync.cs         Sincroniza coches, tráfico y peatones durante la partida
     NetProxies.cs           Coches, tráfico y peatones remotos (interpolación)
   Plugins/LiteNetLib/       Librería de red UDP (MIT)
@@ -324,14 +351,15 @@ sudo systemctl disable --now hernani-server   # pararlo y que no arranque más
 Cada vez que cambies el juego hay que repartir el ejecutable nuevo a todos: si las versiones no coinciden, no os deja entrar en la misma sala.
 
 ### 5.5 Cómo se juega online
-1. En el selector de circuito, a la derecha, pulsa **JUGAR ONLINE**.
-2. Escribe la **IP (o dominio) del servidor**, el **puerto** (7777), la **contraseña** y **tu nombre**, y pulsa **CONECTAR**.
-   El juego lo recuerda para la próxima vez.
-3. Uno pulsa **Crear** sala y les dice a los demás el **código de 4 letras** (por ejemplo `HXLH`). Los demás lo escriben y pulsan
-   **Entrar**, o eligen la sala en la lista.
-4. Cada uno elige a la izquierda su **coche** y su **color**.
-5. El **líder** elige el circuito (los 4 cruces o un circuito predefinido), las vueltas, los rivales de la IA y el tráfico, y pulsa
-   **¡CARRERA ONLINE!** o **PASEO LIBRE ONLINE**. Los demás ven sus cambios en directo.
+1. En la presentación pulsa **JUGAR ONLINE**.
+2. Escribe **tu nombre** y pulsa **CONECTAR**. El servidor ya viene configurado (ver 5.8); para usar otro, entra en **Opciones de conexión**,
+   desmarca *Usar el servidor por defecto* y escribe la IP o dominio, el puerto y la contraseña. El juego lo recuerda para la próxima vez.
+3. Uno pulsa **CREAR SALA** y les dice a los demás el **código de 4 letras** (por ejemplo `HXLH`). Los demás lo escriben y pulsan
+   **ENTRAR**, o eligen la sala en la lista de **salas abiertas** (se actualiza cada 2 segundos).
+4. En la sala, cada uno cambia su **coche** y su **color** con *Cambiar coche*.
+5. El **líder** elige el circuito (*Cambiar circuito*), las vueltas, los rivales de la IA (hasta 8, sin pasar de 10 coches en total) y el tráfico,
+   y pulsa **¡CARRERA ONLINE!**. Con **PASEO LIBRE ONLINE** elige la salida y el tráfico y pulsa **¡EMPEZAR PASEO ONLINE!**.
+   Los demás ven sus cambios en directo.
 6. En carrera hay una cuenta atrás común. Al terminar, el líder pulsa **Volver a la sala** para preparar la siguiente.
 7. **Esc** abre el menú: *Continuar*, *Salir a la sala* y, para el líder, *Terminar para todos*. En el paseo libre se puede salir y volver a
    entrar (**ENTRAR AL PASEO**) mientras sigue en marcha.
@@ -360,6 +388,20 @@ Notas:
   **interpolan** unos 100 ms en el pasado y empujan de verdad al chocar. Los coches de la IA los mueve el PC del líder.
 * Tráfico y peatones: cada PC crea y mueve los que tiene cerca y los envía (8 y 5 veces por segundo). Los de otros jugadores se ven hasta
   650 m. Los semáforos usan el reloj del servidor, así que todos ven el mismo color.
+
+### 5.8 Servidor por defecto (sin escribir IP ni contraseña)
+El juego lee el servidor por defecto de `Assets/HernaniRacing/Resources/HernaniNet/server_default.json`:
+```
+{
+  "name": "Servidor Hernani Racing",
+  "host": "IP-O-DOMINIO-DE-TU-SERVIDOR",
+  "port": 7777,
+  "password": "LA-CONTRASEÑA-DEL-SERVIDOR"
+}
+```
+Ese fichero va dentro del ejecutable que repartes, pero **no se sube a GitHub** (está en `.gitignore`), porque el repositorio es público.
+Hay un ejemplo en `Server/server_default.example.json`: cópialo a esa carpeta con ese nombre y rellénalo.
+Si el fichero no existe, en *Opciones de conexión* hay que escribir los datos a mano.
 
 ---
 
@@ -392,7 +434,7 @@ El proyecto ya trae `.gitignore` (de Unity) y `.gitattributes`, así que solo se
 cd HernaniRacing
 git init -b main
 git add -A
-git commit -m "Hernani Racing v6"
+git commit -m "Hernani Racing v7"
 git remote add origin https://github.com/TU_USUARIO/HernaniRacing.git
 git push -u origin main
 ```

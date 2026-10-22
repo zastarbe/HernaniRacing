@@ -111,6 +111,65 @@ namespace HernaniRacing
             baseTex.Apply(false);
         }
 
+        /// <summary>
+        /// Miniatura cuadrada del plano (para los menús): ventana [center ± span/2] en 'size' x 'size' píxeles,
+        /// con el circuito encima si se pasa uno. Reutiliza 'reuse' si tiene el tamaño adecuado.
+        /// </summary>
+        public static Texture2D Thumbnail(World w, Circuit circuit, Vector2 center, float span, int size, Texture2D reuse)
+        {
+            BuildBase(w);
+            var px = new Color32[size * size];
+            float mPerPx = span / size;
+            int k = Mathf.Clamp(Mathf.CeilToInt(mPerPx / MetersPerPx), 1, 6);
+            float x0 = center.x - span * 0.5f, z0 = center.y - span * 0.5f;
+            var bg = new Color32(58, 74, 52, 255);
+            for (int y = 0; y < size; y++)
+                for (int x = 0; x < size; x++)
+                {
+                    float wx = x0 + (x + 0.5f) * mPerPx, wz = z0 + (y + 0.5f) * mPerPx;
+                    int bx = Mathf.FloorToInt(wx * scale) - k / 2, by = Mathf.FloorToInt(wz * scale) - k / 2;
+                    int r = 0, g = 0, b = 0, n = 0;
+                    for (int dy = 0; dy < k; dy++)
+                    {
+                        int yy = by + dy;
+                        if (yy < 0 || yy >= PxY) continue;
+                        for (int dx = 0; dx < k; dx++)
+                        {
+                            int xx = bx + dx;
+                            if (xx < 0 || xx >= PxX) continue;
+                            var c = basePx[yy * PxX + xx];
+                            r += c.r; g += c.g; b += c.b; n++;
+                        }
+                    }
+                    px[y * size + x] = n > 0 ? new Color32((byte)(r / n), (byte)(g / n), (byte)(b / n), 255) : bg;
+                }
+            if (circuit != null && circuit.raw != null && circuit.raw.Length > 1)
+            {
+                float sc2 = 1f / mPerPx;
+                System.Func<Vector3, Vector2> tp = p => new Vector2((p.x - x0) * sc2, (p.z - z0) * sc2);
+                int n = circuit.raw.Length;
+                float rad = Mathf.Max(1.4f, size / 170f);
+                for (int i = 0; i < n; i++)
+                    Line(px, size, size, tp(circuit.raw[i]), tp(circuit.raw[(i + 1) % n]), rad + 1f, new Color32(20, 0, 0, 255));
+                for (int i = 0; i < n; i++)
+                    Line(px, size, size, tp(circuit.raw[i]), tp(circuit.raw[(i + 1) % n]), rad, new Color32(255, 45, 30, 255));
+                Vector2 sp = tp(circuit.raw[0]);
+                int q = Mathf.Max(3, size / 60);
+                for (int dx = -q; dx <= q; dx++)
+                    for (int dy = -q; dy <= q; dy++)
+                        Put(px, size, size, (int)sp.x + dx, (int)sp.y + dy, (((dx + q) * 2 / q + (dy + q) * 2 / q) & 1) == 0 ? new Color32(0, 0, 0, 255) : new Color32(255, 255, 255, 255));
+            }
+            var tex = reuse;
+            if (tex == null || tex.width != size || tex.height != size)
+            {
+                if (tex != null) Object.Destroy(tex);
+                tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp, name = "HR_map_thumb" };
+            }
+            tex.SetPixels32(px);
+            tex.Apply(false);
+            return tex;
+        }
+
         static bool Inside(Vector2[] poly, float x, float y)
         {
             bool c = false;

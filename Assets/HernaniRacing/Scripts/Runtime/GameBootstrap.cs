@@ -13,11 +13,12 @@ namespace HernaniRacing
         public Camera MainCamera { get; private set; }
         public World world;
         CircuitSelector selector;
+        MainMenu menu;
         RaceManager race;
         FreeRoamManager free;
         public NetSession net;
-        /// <summary>Se está en el selector de circuito (menú principal).</summary>
-        public bool InMenu { get { return ready && selector != null && selector.IsOpen; } }
+        /// <summary>Se está en los menús (presentación, coche, circuito, paseo, online).</summary>
+        public bool InMenu { get { return ready && menu != null && menu.IsOpen; } }
 
         string loadingMsg = "Cargando datos de Hernani...";
         float loadingProgress;
@@ -46,8 +47,17 @@ namespace HernaniRacing
             yield return null;
             yield return WorldBuilder.Build(world, (m, p) => { loadingMsg = m; loadingProgress = p; });
 
+            loadingMsg = "Dibujando el plano de Hernani...";
+            loadingProgress = 1f;
+            yield return null;
+            new MapView(world, null);   // plano base (para los resúmenes del menú y el minimapa)
+
+            menu = gameObject.AddComponent<MainMenu>();
+            menu.game = this;
             selector = gameObject.AddComponent<CircuitSelector>();
             selector.game = this;
+            selector.menu = menu;
+            menu.map = selector;
             race = gameObject.AddComponent<RaceManager>();
             race.game = this;
             free = gameObject.AddComponent<FreeRoamManager>();
@@ -57,6 +67,10 @@ namespace HernaniRacing
             var lobby = gameObject.AddComponent<NetLobbyUI>();
             lobby.game = this;
             lobby.net = net;
+            lobby.menu = menu;
+            menu.net = net;
+            menu.lobby = lobby;
+            menu.Init();
             ready = true;
             ShowSelector();
         }
@@ -119,13 +133,13 @@ namespace HernaniRacing
             race.End();
             free.End();
             RenderSettings.fog = false;
-            selector.Open();
+            menu.Open();
         }
 
         public void StartRace(Circuit c, RaceSettings s)
         {
             if (c == null || c.error != null) return;
-            selector.Close();
+            menu.Close();
             RenderSettings.fog = true;
             race.Begin(world, c, s);
         }
@@ -133,7 +147,7 @@ namespace HernaniRacing
         /// <summary>Paseo libre (sin carrera) empezando junto al cruce 'startNode' (o en el centro si es -1).</summary>
         public void StartFreeRoam(RaceSettings s, int startNode)
         {
-            selector.Close();
+            menu.Close();
             race.End();
             RenderSettings.fog = true;
             free.Begin(world, s, startNode);
@@ -152,7 +166,7 @@ namespace HernaniRacing
                     net.ShowToast("No se puede montar el circuito de la sala" + (c != null ? ": " + c.error : ""), 5f);
                     return false;
                 }
-                selector.Close();
+                menu.Close();
                 free.End();
                 RenderSettings.fog = true;
                 race.BeginOnline(world, c, s, net, room);
@@ -160,7 +174,7 @@ namespace HernaniRacing
             }
             if (room.phase == RoomPhase.Free)
             {
-                selector.Close();
+                menu.Close();
                 race.End();
                 RenderSettings.fog = true;
                 free.BeginOnline(world, s, room.settings.freeStartNode, net, room);

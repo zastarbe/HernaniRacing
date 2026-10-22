@@ -72,11 +72,12 @@ namespace HernaniRacing
         TrafficSystem traffic;
         GuideArrows arrows;
 
-        static readonly string[] AINames = { "Ane", "Iker", "Maialen", "Unai", "Leire", "Jon" };
+        static readonly string[] AINames = { "Ane", "Iker", "Maialen", "Unai", "Leire", "Jon", "Nahia", "Aitor" };
         static readonly Color[] AIColors =
         {
             new Color(0.12f, 0.35f, 0.85f), new Color(0.1f, 0.65f, 0.25f), new Color(0.95f, 0.55f, 0.05f),
-            new Color(0.55f, 0.2f, 0.75f), new Color(0.92f, 0.92f, 0.92f), new Color(0.1f, 0.75f, 0.8f)
+            new Color(0.55f, 0.2f, 0.75f), new Color(0.92f, 0.92f, 0.92f), new Color(0.1f, 0.75f, 0.8f),
+            new Color(0.95f, 0.4f, 0.65f), new Color(0.15f, 0.15f, 0.17f)
         };
         public static readonly Color PlayerColor = new Color(0.85f, 0.08f, 0.1f);
 

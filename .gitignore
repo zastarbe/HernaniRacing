@@ -42,3 +42,7 @@ __pycache__/
 Server/**/bin/
 Server/**/obj/
 !Server/**/*.csproj
+
+# Servidor por defecto del juego (IP y contraseña): no se sube al repositorio público
+Assets/HernaniRacing/Resources/HernaniNet/server_default.json
+Assets/HernaniRacing/Resources/HernaniNet/server_default.json.meta
