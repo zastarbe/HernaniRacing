@@ -1,0 +1,9 @@
+* text=auto
+*.cs text eol=lf diff=csharp
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.bytes binary
+*.png binary
+*.glb binary
+*.fbx binary

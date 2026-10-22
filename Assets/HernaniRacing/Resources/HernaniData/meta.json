@@ -1,0 +1,123 @@
+{
+ "version": 1,
+ "generated": "2026-10-22T09:58:55",
+ "crs": "EPSG:25830 (ETRS89 / UTM 30N)",
+ "originE": 580450.0,
+ "originN": 4785950.0,
+ "sizeX": 10240.0,
+ "sizeZ": 7168.0,
+ "size": 10240.0,
+ "gridX": 5121,
+ "gridZ": 3585,
+ "cell": 2.0,
+ "tileCells": 512,
+ "heightmapRes": 0,
+ "heightMin": 0.0,
+ "heightRange": 610.0,
+ "dtmSource": "IGN/IDEE MDT05 (WCS Elevacion25830_5) - fallback",
+ "attribution": [
+  "Viales, edificios, toponimia e hidrografía: b5m - IDE de Gipuzkoa, Diputación Foral de Gipuzkoa (CC BY 4.0)",
+  "Modelo digital del terreno: IGN/IDEE MDT05 (WCS Elevacion25830_5) - fallback",
+  "Sentidos de circulación, semáforos, señales y pasos de peatones: © colaboradores de OpenStreetMap (ODbL)"
+ ],
+ "presets": [
+  {
+   "name": "GP Urumea: Centro - Karabel - Florida - Latsunbe",
+   "length": 3910.0,
+   "points": [
+    2616.5,
+    4847.5,
+    3126.0,
+    4896.5,
+    3198.0,
+    5533.5,
+    2473.0,
+    5378.5
+   ]
+  },
+  {
+   "name": "Subida a Elizatxo: Portu - Elizatxo - Centro - Karabel",
+   "length": 2761.0,
+   "points": [
+    2836.5,
+    4580.0,
+    2388.0,
+    4399.5,
+    2616.5,
+    4847.5,
+    3109.5,
+    4909.0
+   ]
+  },
+  {
+   "name": "Vuelta Antziola: Antziola - Florida - Latsunbe - Galarreta",
+   "length": 4537.0,
+   "points": [
+    2500.0,
+    6104.0,
+    3241.0,
+    5620.5,
+    2446.5,
+    5365.0,
+    1774.0,
+    6115.0
+   ]
+  },
+  {
+   "name": "Sprint Casco: Centro - Portu - Karabel - Florida",
+   "length": 2863.0,
+   "points": [
+    2616.5,
+    4847.5,
+    2836.5,
+    4580.0,
+    3126.0,
+    4896.5,
+    3013.0,
+    5393.0
+   ]
+  },
+  {
+   "name": "Rally Urumea: Hernani - Fagollaga - Ereñotzu - Ugaldetxo (vuelta por el monte)",
+   "length": 18946.0,
+   "points": [
+    2836.5,
+    4580.0,
+    4645.5,
+    2979.0,
+    5590.0,
+    2299.5,
+    6814.5,
+    317.5
+   ]
+  },
+  {
+   "name": "Hernani - Urnieta: Centro - Zikuñaga - Urnieta - Osinaga",
+   "length": 10398.0,
+   "points": [
+    2616.5,
+    4847.5,
+    3264.5,
+    4531.5,
+    1455.5,
+    2789.0,
+    3251.5,
+    2991.5
+   ]
+  },
+  {
+   "name": "Hernani - Astigarraga: Centro - Akarregi - Astigarraga - Florida",
+   "length": 7397.0,
+   "points": [
+    2678.0,
+    4946.0,
+    3618.5,
+    4967.5,
+    4933.0,
+    6644.0,
+    3234.5,
+    5545.5
+   ]
+  }
+ ]
+}

@@ -1,0 +1,71 @@
+{
+ "cars": [
+  {
+   "id": "turismo",
+   "name": "Turismo GT",
+   "category": "Turismo",
+   "selectable": true
+  },
+  {
+   "id": "berlina",
+   "name": "Berlina familiar",
+   "category": "Turismo",
+   "selectable": true
+  },
+  {
+   "id": "utilitario",
+   "name": "Utilitario",
+   "category": "Utilitario",
+   "selectable": true
+  },
+  {
+   "id": "furgoneta",
+   "name": "Furgoneta",
+   "category": "Furgoneta",
+   "selectable": true
+  },
+  {
+   "id": "f1",
+   "name": "Fórmula 1",
+   "category": "F1",
+   "selectable": true
+  },
+  {
+   "id": "f1futuro",
+   "name": "Fórmula 1 (futuro)",
+   "category": "F1",
+   "selectable": true
+  },
+  {
+   "id": "suv",
+   "name": "Todoterreno SUV",
+   "category": "Turismo",
+   "selectable": true
+  },
+  {
+   "id": "taxi",
+   "name": "Taxi",
+   "category": "Turismo",
+   "selectable": false
+  },
+  {
+   "id": "policia",
+   "name": "Ertzaintza",
+   "category": "Turismo",
+   "selectable": false
+  },
+  {
+   "id": "ambulancia",
+   "name": "Ambulancia",
+   "category": "Furgoneta",
+   "selectable": false
+  },
+  {
+   "id": "reparto",
+   "name": "Camión de reparto",
+   "category": "Furgoneta",
+   "selectable": false
+  }
+ ],
+ "credits": "Car Kit de Kenney (kenney.nl), licencia CC0 1.0"
+}

@@ -1,0 +1,593 @@
+using System.Collections.Generic;
+using System.Linq;
+using UnityEngine;
+
+namespace HernaniRacing
+{
+    public class RaceSettings
+    {
+        public int laps = 3;
+        public int opponents = 3;
+        public int difficulty = 1;   // 0 fácil, 1 normal, 2 difícil
+        public string carId = "turismo";                 // modelo (Resources/HernaniCars); los rivales llevan el mismo
+        public Color paint = new Color(0.85f, 0.08f, 0.1f);
+        public bool traffic = false, pedestrians = true;          // carrera
+        public bool freeTraffic = true, freePedestrians = true;   // paseo libre
+        public static readonly string[] DifficultyNames = { "Fácil", "Normal", "Difícil" };
+    }
+
+    public class Racer
+    {
+        public string name;
+        public bool isPlayer;
+        public Color color;
+        public CarController car;
+        public AIDriver ai;
+        public int idx = -1;
+        public float lastS, progress;
+        public int lapsDone;
+        public float lapStart;
+        public List<float> lapTimes = new List<float>();
+        public float bestLap = -1;
+        public bool finished;
+        public float finishTime;
+        public int finishOrder;
+        public float offTimer, wrongTimer, stuckTimer, flipTimer;
+        public bool offTrack, wrongWay;
+        public int position;
+        public float distToLine;
+        public float nextRejoinCheck;
+    }
+
+    /// <summary>Gestión de la carrera: parrilla, cuenta atrás, vueltas, posiciones, HUD y resultados.</summary>
+    public class RaceManager : MonoBehaviour
+    {
+        public GameBootstrap game;
+        World world;
+        Circuit circuit;
+        RaceSettings settings;
+        GameObject circuitRoot;
+        readonly List<Racer> racers = new List<Racer>();
+        Racer player;
+        ChaseCamera chase;
+
+        enum State { Countdown, Racing, Finished }
+        State state;
+        bool paused;
+        float countdown, raceStart, raceTime, finishedAt;
+        int finishCounter;
+        bool showMinimap = true;
+        string message; float messageUntil;
+        System.Action pending;
+
+        MapView map;
+        Vector2 mapCenter; float mapSpan;
+        bool mapZoom;
+        TrafficSystem traffic;
+        GuideArrows arrows;
+
+        static readonly string[] AINames = { "Ane", "Iker", "Maialen", "Unai", "Leire", "Jon" };
+        static readonly Color[] AIColors =
+        {
+            new Color(0.12f, 0.35f, 0.85f), new Color(0.1f, 0.65f, 0.25f), new Color(0.95f, 0.55f, 0.05f),
+            new Color(0.55f, 0.2f, 0.75f), new Color(0.92f, 0.92f, 0.92f), new Color(0.1f, 0.75f, 0.8f)
+        };
+        public static readonly Color PlayerColor = new Color(0.85f, 0.08f, 0.1f);
+
+        public bool Active { get; private set; }
+
+        public void Begin(World w, Circuit c, RaceSettings s)
+        {
+            End();
+            world = w; circuit = c; settings = s;
+            Active = true;
+            // perfil de velocidad de la IA según el coche elegido (todos llevan el mismo)
+            var md = CarModels.Get(s.carId);
+            float mu = md != null ? Mathf.Clamp(1.05f * md.grip / 1.25f, 0.9f, 1.9f) : 1.05f;
+            float dec = md != null ? Mathf.Clamp(7.5f * (md.brake / Mathf.Max(md.mass, 1f)) / 9.6f, 6f, 12f) : 7.5f;
+            float vmax = md != null ? md.maxSpeed * 0.95f : 42f;
+            circuit.ComputeSpeedProfile(mu, dec, vmax);
+            circuitRoot = CircuitVisuals.Build(circuit);
+            BuildMinimap();
+
+            int total = s.opponents + 1;
+            float[] skills = { 0.80f, 0.90f, 0.99f };
+            for (int k = 0; k < total; k++)
+            {
+                bool isPlayer = k == total - 1;
+                var r = new Racer
+                {
+                    isPlayer = isPlayer,
+                    name = isPlayer ? "Tú" : AINames[k % AINames.Length],
+                    color = isPlayer ? s.paint : AIColors[k % AIColors.Length]
+                };
+                r.car = CarModels.Create(s.carId, isPlayer ? "Coche jugador" : "Coche " + r.name, r.color, isPlayer);
+                if (isPlayer)
+                {
+                    r.car.gameObject.AddComponent<PlayerDriver>().car = r.car;
+                    player = r;
+                }
+                else
+                {
+                    r.ai = r.car.gameObject.AddComponent<AIDriver>();
+                    r.ai.car = r.car;
+                    r.ai.circuit = circuit;
+                    r.ai.skill = skills[Mathf.Clamp(s.difficulty, 0, 2)] + (k % 3 - 1) * 0.025f;
+                    r.ai.lane = (k % 2 == 0 ? -1 : 1) * 0.8f;
+                }
+                racers.Add(r);
+            }
+            var cars = racers.Select(x => x.car).ToList();
+            foreach (var r in racers) if (r.ai != null) r.ai.others = cars;
+
+            PlaceOnGrid();
+
+            var cam = game.MainCamera;
+            cam.orthographic = false;
+            cam.fieldOfView = 62f;
+            cam.nearClipPlane = 0.2f;
+            chase = cam.GetComponent<ChaseCamera>();
+            if (chase == null) chase = cam.gameObject.AddComponent<ChaseCamera>();
+            chase.enabled = true;
+            chase.target = player.car.transform;
+            chase.world = world;
+            chase.Snap();
+
+            if (s.traffic || s.pedestrians)
+            {
+                traffic = TrafficSystem.Create(world, player.car.transform, s.traffic, s.pedestrians);
+                traffic.maxCars = 16;
+                foreach (var r in racers) traffic.drivers.Add(r.car);
+            }
+            arrows = GuideArrows.Create(circuit);
+            mapZoom = false;
+            if (world.trees != null) { world.trees.drawAll = false; world.trees.drawDistance = 900f; }
+
+            state = State.Countdown;
+            countdown = 3.99f;
+            paused = false;
+            Time.timeScale = 1f;
+            finishCounter = 0;
+            foreach (var r in racers) r.car.frozen = true;
+        }
+
+        void PlaceOnGrid()
+        {
+            int total = racers.Count;
+            for (int k = 0; k < total; k++)
+            {
+                int row = k / 2;
+                int side = k % 2 == 0 ? -1 : 1;
+                float s = -(7f + row * 9f);
+                float sw = Mathf.Repeat(s, circuit.length);
+                int idx = circuit.IndexAt(sw);
+                float hw = circuit.width[idx] * 0.5f;
+                Vector3 p = circuit.PosAt(sw, true);
+                Vector3 d = circuit.DirAt(sw);
+                Vector3 flat = new Vector3(d.x, 0, d.z).normalized;
+                Vector3 right = new Vector3(flat.z, 0, -flat.x);
+                p += right * side * Mathf.Min(hw * 0.45f, 1.8f);
+                p = Ground(p) + Vector3.up * 0.25f;
+                var r = racers[k];
+                r.car.Teleport(p, Quaternion.LookRotation(d, Vector3.up));
+                r.idx = idx;
+                r.lastS = sw;
+                r.progress = s;
+                r.lapsDone = 0;
+                r.lapTimes.Clear();
+                r.bestLap = -1;
+                r.finished = false;
+                r.offTimer = r.wrongTimer = r.stuckTimer = r.flipTimer = 0;
+                if (r.ai != null) r.ai.ResetTracking();
+            }
+        }
+
+        static readonly RaycastHit[] groundHits = new RaycastHit[8];
+
+        /// <summary>Superficie de rodadura bajo p (terreno o tablero), ignorando coches y sin saltar a un puente superior.</summary>
+        static Vector3 Ground(Vector3 p)
+        {
+            int n = Physics.RaycastNonAlloc(p + Vector3.up * 2.5f, Vector3.down, groundHits, 12f, ~0, QueryTriggerInteraction.Ignore);
+            float best = float.MaxValue; Vector3 pt = p;
+            for (int i = 0; i < n; i++)
+            {
+                if (groundHits[i].rigidbody != null) continue;
+                if (groundHits[i].distance < best) { best = groundHits[i].distance; pt = groundHits[i].point; }
+            }
+            return pt;
+        }
+
+        public void End()
+        {
+            foreach (var r in racers) if (r.car != null) Destroy(r.car.gameObject);
+            racers.Clear();
+            player = null;
+            if (circuitRoot != null) Destroy(circuitRoot);
+            if (traffic != null) Destroy(traffic.gameObject);
+            traffic = null;
+            if (arrows != null) Destroy(arrows.gameObject);
+            arrows = null;
+            if (map != null) map.Dispose();
+            map = null;
+            if (chase != null) chase.enabled = false;
+            Time.timeScale = 1f;
+            Active = false;
+        }
+
+        void Update()
+        {
+            if (pending != null) { var pa = pending; pending = null; pa(); }
+            if (!Active) return;
+            if (GameInput.PausePressed && state != State.Finished)
+            {
+                paused = !paused;
+                Time.timeScale = paused ? 0f : 1f;
+            }
+            if (GameInput.MapPressed) showMinimap = !showMinimap;
+            if (GameInput.MapZoomPressed) mapZoom = !mapZoom;
+            if (GameInput.ArrowsPressed && arrows != null) arrows.show = !arrows.show;
+            if (paused) return;
+
+            if (state == State.Countdown)
+            {
+                countdown -= Time.deltaTime;
+                if (countdown <= 0f)
+                {
+                    state = State.Racing;
+                    raceStart = Time.time;
+                    foreach (var r in racers) { r.car.frozen = false; r.lapStart = raceStart; }
+                    Flash("¡YA!", 1.2f);
+                }
+            }
+            if (state != State.Countdown) raceTime = Time.time - raceStart;
+
+            foreach (var r in racers) Track(r);
+            if (arrows != null && player != null)
+                arrows.Place(player.lastS, !player.offTrack && !player.finished && !player.wrongWay);
+
+            // posiciones
+            var order = racers.OrderByDescending(r => r.finished ? 1e9f - r.finishOrder : r.progress).ToList();
+            for (int i = 0; i < order.Count; i++) order[i].position = i + 1;
+
+            if (player != null && state == State.Racing && GameInput.ResetPressed) ResetRacer(player);
+            if (state == State.Finished && Time.time - finishedAt > 45f)
+                foreach (var r in racers) if (!r.finished) r.car.frozen = true;
+        }
+
+        void Track(Racer r)
+        {
+            var car = r.car;
+            Vector3 p = car.transform.position;
+            float d;
+            float L = circuit.length;
+            // Fuera del circuito (sólo jugador): el progreso se congela en el punto por donde salió.
+            // Al volver a la pista se acepta si vuelve cerca; si ha atajado, vuelve a donde salió.
+            bool lockedOff = r.isPlayer && r.offTrack && state == State.Racing && !r.finished && r.idx >= 0;
+            if (lockedOff)
+            {
+                Vector3 ex = circuit.pos[r.idx];
+                d = new Vector2(ex.x - p.x, ex.z - p.z).magnitude;
+                if (Time.time >= r.nextRejoinCheck)
+                {
+                    r.nextRejoinCheck = Time.time + 0.2f;
+                    float gd;
+                    int gi = circuit.Closest(p, -1, 0, out gd);
+                    if (gd < circuit.width[gi] * 0.5f + 3f && Mathf.Abs(circuit.pos[gi].y - p.y) < 3f)
+                    {
+                        float ahead = Mathf.Repeat((gi - r.idx) * circuit.SampleSpacing, L);
+                        if (ahead > L * 0.5f) ahead -= L;          // negativo = ha vuelto por detrás
+                        if (ahead <= 100f && ahead >= -400f) { r.idx = gi; d = gd; lockedOff = false; r.offTrack = false; }
+                        else { r.offTrack = false; ResetRacer(r, "Atajo: vuelves al punto donde saliste del circuito"); return; }
+                    }
+                }
+            }
+            else r.idx = circuit.Closest(p, r.idx, 25, out d);
+            r.distToLine = d;
+            if (lockedOff)
+            {
+                r.offTimer += Time.deltaTime;
+                r.flipTimer = Vector3.Dot(car.transform.up, Vector3.up) < 0.3f ? r.flipTimer + Time.deltaTime : 0f;
+                r.wrongWay = false; r.wrongTimer = 0f;
+                if (r.flipTimer > 2.5f || p.y < -50f) ResetRacer(r);
+                return;
+            }
+            float s = circuit.ProjectS(p, r.idx);
+            float ds = s - r.lastS;
+            if (ds > L * 0.5f) ds -= L;
+            if (ds < -L * 0.5f) ds += L;
+            r.lastS = s;
+            if (state == State.Countdown) return;
+            if (!r.finished) r.progress += ds;
+
+            int laps = Mathf.FloorToInt(r.progress / L);
+            if (!r.finished && laps > r.lapsDone)
+            {
+                float lt = Time.time - r.lapStart;
+                r.lapTimes.Add(lt);
+                if (r.bestLap < 0 || lt < r.bestLap) r.bestLap = lt;
+                r.lapStart = Time.time;
+                r.lapsDone = laps;
+                if (r.isPlayer && laps < settings.laps)
+                    Flash(laps == settings.laps - 1 ? "¡ÚLTIMA VUELTA!  " + FormatTime(lt) : "Vuelta " + laps + "  " + FormatTime(lt), 2.5f);
+                if (r.lapsDone >= settings.laps)
+                {
+                    r.finished = true;
+                    r.finishTime = Time.time - raceStart;
+                    r.finishOrder = ++finishCounter;
+                    if (r.isPlayer)
+                    {
+                        state = State.Finished;
+                        finishedAt = Time.time;
+                        Flash("¡META!", 3f);
+                        // el jugador pasa a "piloto automático" lento
+                        var pd = car.GetComponent<PlayerDriver>();
+                        if (pd != null) pd.enabled = false;
+                        car.throttle = 0; car.brake = 0.4f;
+                    }
+                }
+            }
+
+            // fuera de pista / sentido contrario / atascado / volcado
+            float hw = circuit.width[r.idx] * 0.5f;
+            r.offTrack = d > hw + 10f;
+            r.offTimer = r.offTrack ? r.offTimer + Time.deltaTime : 0f;
+            Vector3 dir = circuit.dir[r.idx];
+            bool wrong = Vector3.Dot(car.transform.forward, dir) < -0.3f && car.ForwardSpeed > 4f;
+            r.wrongTimer = wrong ? r.wrongTimer + Time.deltaTime : 0f;
+            r.wrongWay = r.wrongTimer > 1.2f;
+            bool blocked = r.ai != null && r.ai.Blocked;
+            r.stuckTimer = (!car.frozen && car.Speed < 1.2f && !blocked) ? r.stuckTimer + Time.deltaTime : 0f;
+            r.flipTimer = Vector3.Dot(car.transform.up, Vector3.up) < 0.3f ? r.flipTimer + Time.deltaTime : 0f;
+
+            if (r.finished && r.isPlayer) return;
+            if (r.isPlayer)
+            {
+                // sin cuenta atrás por salirse: sólo se recoloca si vuelca o cae fuera del mapa (o pulsando R)
+                if (r.flipTimer > 2.5f || p.y < -50f) ResetRacer(r);
+            }
+            else
+            {
+                if (r.offTimer > 2.5f || r.stuckTimer > 4f || r.flipTimer > 2f || r.wrongTimer > 3f || p.y < -50f) ResetRacer(r);
+            }
+        }
+
+        void ResetRacer(Racer r) { ResetRacer(r, null); }
+
+        void ResetRacer(Racer r, string why)
+        {
+            float s = Mathf.Repeat(r.idx * circuit.SampleSpacing - 4f, circuit.length);
+            Vector3 p = Ground(circuit.PosAt(s, true)) + Vector3.up * 0.4f;
+            r.car.Teleport(p, Quaternion.LookRotation(circuit.DirAt(s), Vector3.up));
+            r.offTimer = r.stuckTimer = r.flipTimer = r.wrongTimer = 0f;
+            float d;
+            r.idx = circuit.Closest(p, r.idx, 25, out d);
+            float ns = circuit.ProjectS(p, r.idx);
+            float delta = ns - r.lastS;
+            if (delta > circuit.length * 0.5f) delta -= circuit.length;
+            if (delta < -circuit.length * 0.5f) delta += circuit.length;
+            if (!r.finished) r.progress += delta;
+            r.lastS = ns;
+            if (r.ai != null) r.ai.ResetTracking();
+            r.offTrack = false;
+            if (r.isPlayer) Flash(why ?? "Recolocado en el circuito", why != null ? 3f : 1.5f);
+        }
+
+        void Flash(string m, float t) { message = m; messageUntil = Time.unscaledTime + t; }
+
+        public static string FormatTime(float t)
+        {
+            if (t < 0) return "--:--.---";
+            int m = (int)(t / 60f);
+            float sec = t - m * 60;
+            return m.ToString("00") + ":" + sec.ToString("00.000");
+        }
+
+        // ------------------------------------------------------------------ minimapa
+        void BuildMinimap()
+        {
+            Vector2 mn = new Vector2(float.MaxValue, float.MaxValue), mx = new Vector2(float.MinValue, float.MinValue);
+            foreach (var p in circuit.raw) { mn = Vector2.Min(mn, new Vector2(p.x, p.z)); mx = Vector2.Max(mx, new Vector2(p.x, p.z)); }
+            mapSpan = Mathf.Max(mx.x - mn.x, mx.y - mn.y) + 80f;
+            mapCenter = (mn + mx) * 0.5f;
+            if (map != null) map.Dispose();
+            map = new MapView(world, circuit);
+        }
+
+        // ------------------------------------------------------------------ HUD
+        GUIStyle big, mid, small, label, box, centerHuge, right;
+        float uiScale;
+
+        void Styles()
+        {
+            if (big != null) return;
+            big = new GUIStyle(GUI.skin.label) { fontSize = 46, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleRight };
+            big.normal.textColor = Color.white;
+            mid = new GUIStyle(GUI.skin.label) { fontSize = 24, fontStyle = FontStyle.Bold };
+            mid.normal.textColor = Color.white;
+            small = new GUIStyle(GUI.skin.label) { fontSize = 17 };
+            small.normal.textColor = new Color(0.9f, 0.9f, 0.9f);
+            label = new GUIStyle(GUI.skin.label) { fontSize = 20 };
+            label.normal.textColor = Color.white;
+            right = new GUIStyle(label) { alignment = TextAnchor.MiddleRight };
+            box = new GUIStyle(GUI.skin.box);
+            box.normal.background = Tex.Solid(new Color(0, 0, 0, 0.55f));
+            centerHuge = new GUIStyle(GUI.skin.label) { fontSize = 96, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
+            centerHuge.normal.textColor = new Color(1f, 0.85f, 0.2f);
+        }
+
+        void OnGUI()
+        {
+            if (!Active || player == null) return;
+            Styles();
+            uiScale = Screen.height / 1080f;
+            GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(uiScale, uiScale, 1));
+            float W = Screen.width / uiScale, H = 1080f;
+
+            // ---- arriba izquierda: vuelta, posición y tiempos
+            GUI.Box(new Rect(20, 20, 330, 200), GUIContent.none, box);
+            int lapShow = Mathf.Clamp(player.lapsDone + 1, 1, settings.laps);
+            GUI.Label(new Rect(36, 28, 300, 34), "VUELTA  " + lapShow + " / " + settings.laps, mid);
+            GUI.Label(new Rect(36, 62, 300, 34), "POSICIÓN  " + player.position + " / " + racers.Count, mid);
+            float cur = state == State.Countdown ? 0 : (player.finished ? player.finishTime : raceTime);
+            GUI.Label(new Rect(36, 100, 300, 26), "Tiempo      " + FormatTime(cur), label);
+            float lapNow = state == State.Racing && !player.finished ? Time.time - player.lapStart : 0;
+            GUI.Label(new Rect(36, 126, 300, 26), "Vuelta       " + FormatTime(lapNow), label);
+            GUI.Label(new Rect(36, 152, 300, 26), "Última       " + FormatTime(player.lapTimes.Count > 0 ? player.lapTimes[player.lapTimes.Count - 1] : -1), label);
+            GUI.Label(new Rect(36, 178, 300, 26), "Mejor        " + FormatTime(player.bestLap), label);
+
+            // ---- arriba centro: información geográfica real
+            Vector3 pp = player.car.transform.position;
+            string street = circuit.StreetAt(player.idx);
+            if (player.offTrack)
+            {
+                float dd;
+                int e = world.graph.NearestEdge(pp, 40f, out dd);
+                street = e >= 0 ? world.graph.edges[e].name : "Fuera de la red viaria";
+            }
+            var zone = world.ZoneAt(pp);
+            int i0 = circuit.Wrap(player.idx - 5), i1 = circuit.Wrap(player.idx + 5);
+            Vector3 a = circuit.raw[i0], b = circuit.raw[i1];
+            float hd = new Vector2(b.x - a.x, b.z - a.z).magnitude;
+            float grade = hd > 1 ? (b.y - a.y) / hd * 100f : 0f;
+            float gw = 560;
+            GUI.Box(new Rect(W / 2 - gw / 2, 20, gw, 92), GUIContent.none, box);
+            var cst = new GUIStyle(mid) { alignment = TextAnchor.MiddleCenter };
+            GUI.Label(new Rect(W / 2 - gw / 2, 24, gw, 34), street, cst);
+            var cs2 = new GUIStyle(label) { alignment = TextAnchor.MiddleCenter };
+            GUI.Label(new Rect(W / 2 - gw / 2, 56, gw, 26), (zone != null ? zone.name : "Hernani") + "  ·  Hernani (Gipuzkoa)", cs2);
+            var utm = world.data.ToUTM(pp);
+            var cs3 = new GUIStyle(small) { alignment = TextAnchor.MiddleCenter };
+            GUI.Label(new Rect(W / 2 - gw / 2, 82, gw, 24),
+                "Altitud " + pp.y.ToString("F0") + " m  ·  Pendiente " + grade.ToString("+0;-0") + "%  ·  UTM " + utm.x.ToString("F0") + " / " + utm.y.ToString("F0"), cs3);
+
+            // ---- abajo derecha: velocímetro
+            float kmh = Mathf.Abs(player.car.ForwardSpeed) * 3.6f;
+            GUI.Box(new Rect(W - 260, H - 150, 240, 130), GUIContent.none, box);
+            GUI.Label(new Rect(W - 250, H - 150, 160, 90), kmh.ToString("0"), big);
+            GUI.Label(new Rect(W - 85, H - 118, 70, 40), "km/h", label);
+            // barra de velocidad
+            GUI.DrawTexture(new Rect(W - 245, H - 52, 210 * Mathf.Clamp01(kmh / 160f), 12), Tex.Solid(Color.Lerp(new Color(0.3f, 0.9f, 0.3f), new Color(1f, 0.25f, 0.2f), kmh / 160f)));
+
+            // ---- clasificación en vivo
+            var order = racers.OrderBy(r => r.position).ToList();
+            float ly = 240;
+            GUI.Box(new Rect(20, ly, 330, 30 + order.Count * 26), GUIContent.none, box);
+            GUI.Label(new Rect(36, ly + 4, 300, 24), "CLASIFICACIÓN", small);
+            for (int i = 0; i < order.Count; i++)
+            {
+                var r = order[i];
+                float y = ly + 28 + i * 26;
+                GUI.DrawTexture(new Rect(36, y + 6, 14, 14), Tex.Solid(r.color));
+                string gap = "";
+                if (r != player && !r.finished && !player.finished) gap = (r.progress - player.progress).ToString("+0;-0") + " m";
+                if (r.finished) gap = FormatTime(r.finishTime);
+                var st = r.isPlayer ? mid : label;
+                GUI.Label(new Rect(58, y, 160, 26), r.position + ". " + r.name, st);
+                GUI.Label(new Rect(190, y, 150, 26), gap, right);
+            }
+
+            // ---- minimapa
+            if (showMinimap && map != null)
+            {
+                float ms = 300;
+                Rect mr = new Rect(W - ms - 20, 20, ms, ms);
+                GUI.Box(new Rect(mr.x - 3, mr.y - 3, ms + 6, ms + 6), GUIContent.none, box);
+                Vector3 pp2 = player.car.transform.position;
+                // zoom: ventana de ~200 x 200 m (100 m de margen alrededor del coche)
+                if (mapZoom) map.Draw(mr, new Vector2(pp2.x, pp2.z), 200f);
+                else map.Draw(mr, mapCenter, mapSpan);
+                if (traffic != null)
+                    foreach (var tc in traffic.cars) if (tc != null) map.Marker(tc.transform.position, tc.transform.forward, new Color(0.75f, 0.75f, 0.75f), false, mapZoom ? 7 : 4);
+                foreach (var r in racers)
+                    if (!r.isPlayer) map.Marker(r.car.transform.position, r.car.transform.forward, r.color, false, mapZoom ? 12 : 10);
+                map.Marker(pp2, player.car.transform.forward, player.color, true, mapZoom ? 24 : 20);
+                GUI.Label(new Rect(mr.x, mr.yMax + 4, ms, 22), (mapZoom ? "Zoom 200 m" : circuit.length.ToString("F0") + " m · desnivel +" + circuit.elevationGain.ToString("F0") + " m") + "  ·  N zoom · M ocultar", small);
+            }
+            if (chase != null && chase.RearView)
+            {
+                var rv = new GUIStyle(mid) { alignment = TextAnchor.MiddleCenter };
+                GUI.Box(new Rect(W / 2 - 140, H - 120, 280, 40), GUIContent.none, box);
+                GUI.Label(new Rect(W / 2 - 140, H - 120, 280, 40), "VISTA TRASERA", rv);
+            }
+
+            // ---- avisos
+            if (state == State.Countdown)
+            {
+                int n = Mathf.CeilToInt(countdown - 1f);
+                GUI.Label(new Rect(0, H / 2 - 160, W, 160), n >= 1 ? n.ToString() : "¡YA!", centerHuge);
+            }
+            else if (Time.unscaledTime < messageUntil && !string.IsNullOrEmpty(message))
+            {
+                var ms2 = new GUIStyle(centerHuge) { fontSize = 56 };
+                GUI.Label(new Rect(0, H / 2 - 200, W, 100), message, ms2);
+            }
+            if (state == State.Racing && !player.finished)
+            {
+                var warn = new GUIStyle(centerHuge) { fontSize = 44 };
+                warn.normal.textColor = new Color(1f, 0.3f, 0.25f);
+                if (player.wrongWay) GUI.Label(new Rect(0, H / 2 - 60, W, 60), "¡SENTIDO CONTRARIO!", warn);
+                else if (player.offTrack)
+                {
+                    GUI.Label(new Rect(0, H / 2 - 60, W, 60), "FUERA DEL CIRCUITO", warn);
+                    var hint = new GUIStyle(centerHuge) { fontSize = 22 };
+                    hint.normal.textColor = new Color(1f, 0.85f, 0.8f);
+                    GUI.Label(new Rect(0, H / 2 - 8, W, 34), "Vuelve a la pista por donde saliste · R para recolocar", hint);
+                }
+            }
+            GUI.Label(new Rect(20, H - 34, 1500, 26), "W/S acelerar/frenar · A/D girar · Espacio freno de mano · R recolocar · C cámara · B mirar atrás · N zoom mapa · F flechas · Esc pausa", small);
+
+            if (paused) PauseMenu(W, H);
+            else if (state == State.Finished) Results(W, H);
+            GUI.matrix = Matrix4x4.identity;
+        }
+
+        void PauseMenu(float W, float H)
+        {
+            Rect r = new Rect(W / 2 - 200, H / 2 - 150, 400, 300);
+            GUI.Box(r, GUIContent.none, box);
+            GUI.Label(new Rect(r.x, r.y + 20, r.width, 50), "PAUSA", new GUIStyle(mid) { alignment = TextAnchor.MiddleCenter, fontSize = 36 });
+            if (Button(new Rect(r.x + 60, r.y + 90, 280, 50), "Continuar")) { paused = false; Time.timeScale = 1f; }
+            if (Button(new Rect(r.x + 60, r.y + 150, 280, 50), "Reiniciar carrera")) { paused = false; pending = () => Begin(world, circuit, settings); }
+            if (Button(new Rect(r.x + 60, r.y + 210, 280, 50), "Elegir otro circuito")) { paused = false; pending = game.ShowSelector; }
+        }
+
+        void Results(float W, float H)
+        {
+            if (Time.time - finishedAt < 2.5f) return;
+            var order = racers.OrderBy(r => r.position).ToList();
+            float h = 200 + order.Count * 34;
+            Rect r = new Rect(W / 2 - 330, H / 2 - h / 2, 660, h);
+            GUI.Box(r, GUIContent.none, box);
+            GUI.Label(new Rect(r.x, r.y + 14, r.width, 50), "RESULTADOS — " + player.position + "º puesto", new GUIStyle(mid) { alignment = TextAnchor.MiddleCenter, fontSize = 34 });
+            for (int i = 0; i < order.Count; i++)
+            {
+                var x = order[i];
+                float y = r.y + 76 + i * 34;
+                GUI.DrawTexture(new Rect(r.x + 40, y + 8, 16, 16), Tex.Solid(x.color));
+                GUI.Label(new Rect(r.x + 66, y, 220, 30), x.position + ". " + x.name, x.isPlayer ? mid : label);
+                string t;
+                if (x.finished) t = FormatTime(x.finishTime);
+                else
+                {
+                    float avg = raceTime > 1 ? Mathf.Max(x.progress, 1f) / raceTime : 10f;
+                    float remaining = settings.laps * circuit.length - x.progress;
+                    t = "~" + FormatTime(raceTime + remaining / Mathf.Max(avg, 1f)) + " (en pista)";
+                }
+                GUI.Label(new Rect(r.x + 280, y, 220, 30), t, label);
+                GUI.Label(new Rect(r.x + 480, y, 160, 30), "mejor " + FormatTime(x.bestLap), small);
+            }
+            if (Button(new Rect(r.x + 60, r.yMax - 80, 250, 52), "Repetir carrera")) pending = () => Begin(world, circuit, settings);
+            if (Button(new Rect(r.x + 350, r.yMax - 80, 250, 52), "Elegir otro circuito")) pending = game.ShowSelector;
+        }
+
+        static GUIStyle buttonStyle;
+        public static bool Button(Rect r, string text)
+        {
+            if (buttonStyle == null)
+            {
+                buttonStyle = new GUIStyle(GUI.skin.button) { fontSize = 22, fontStyle = FontStyle.Bold };
+            }
+            return GUI.Button(r, text, buttonStyle);
+        }
+    }
+}

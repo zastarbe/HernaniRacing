@@ -1,0 +1,117 @@
+using System.Collections.Generic;
+using System.IO;
+using UnityEditor;
+using UnityEditor.SceneManagement;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+namespace HernaniRacing.EditorTools
+{
+    public static class HernaniRacingMenu
+    {
+        const string ScenePath = "Assets/HernaniRacing/Scenes/Hernani.unity";
+
+        [MenuItem("Hernani Racing/1. Crear escena de juego", false, 1)]
+        public static void CreateScene()
+        {
+            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
+            Directory.CreateDirectory(Path.GetDirectoryName(ScenePath));
+            var scene = EditorSceneManager.NewScene(NewSceneSetup.DefaultGameObjects, NewSceneMode.Single);
+            var go = new GameObject("Hernani Racing");
+            go.AddComponent<GameBootstrap>();
+            EditorSceneManager.SaveScene(scene, ScenePath);
+
+            var list = new List<EditorBuildSettingsScene>(EditorBuildSettings.scenes);
+            if (!list.Exists(s => s.path == ScenePath))
+            {
+                list.Insert(0, new EditorBuildSettingsScene(ScenePath, true));
+                EditorBuildSettings.scenes = list.ToArray();
+            }
+            IncludeShaders();
+            Debug.Log("[Hernani Racing] Escena creada en " + ScenePath + ". Pulsa Play.");
+        }
+
+        [MenuItem("Hernani Racing/2. Incluir shaders para builds", false, 2)]
+        public static void IncludeShaders()
+        {
+            // Los materiales se crean en código, así que los shaders deben ir siempre en el build.
+            var names = new[]
+            {
+                "Standard", "Unlit/Color", "Universal Render Pipeline/Lit", "Universal Render Pipeline/Unlit",
+                "Universal Render Pipeline/Simple Lit", "Universal Render Pipeline/Terrain/Lit"
+            };
+            var assets = AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/GraphicsSettings.asset");
+            if (assets == null || assets.Length == 0) { Debug.LogWarning("No se encontró ProjectSettings/GraphicsSettings.asset"); return; }
+            var so = new SerializedObject(assets[0]);
+            var arr = so.FindProperty("m_AlwaysIncludedShaders");
+            if (arr == null) { Debug.LogWarning("No se pudo acceder a Always Included Shaders"); return; }
+            int added = 0;
+            foreach (var n in names)
+            {
+                var sh = Shader.Find(n);
+                if (sh == null) continue;
+                bool exists = false;
+                for (int i = 0; i < arr.arraySize; i++)
+                    if (arr.GetArrayElementAtIndex(i).objectReferenceValue == sh) { exists = true; break; }
+                if (exists) continue;
+                arr.InsertArrayElementAtIndex(arr.arraySize);
+                arr.GetArrayElementAtIndex(arr.arraySize - 1).objectReferenceValue = sh;
+                added++;
+            }
+            so.ApplyModifiedProperties();
+            AssetDatabase.SaveAssets();
+            Debug.Log("[Hernani Racing] Shaders añadidos a 'Always Included': " + added);
+        }
+
+        [MenuItem("Hernani Racing/3. Regenerar datos geográficos (Python)", false, 20)]
+        public static void RegenerateData()
+        {
+            string root = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
+            string script = Path.Combine(root, "DataPipeline", "build_hernani_data.py");
+            if (!File.Exists(script))
+            {
+                EditorUtility.DisplayDialog("Hernani Racing", "No se encuentra " + script +
+                    "\nCopia la carpeta DataPipeline junto a Assets.", "OK");
+                return;
+            }
+            string py = Application.platform == RuntimePlatform.WindowsEditor ? "py" : "python3";
+            var psi = new System.Diagnostics.ProcessStartInfo(py, "\"" + script + "\"")
+            {
+                WorkingDirectory = Path.GetDirectoryName(script),
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            try
+            {
+                EditorUtility.DisplayProgressBar("Hernani Racing", "Descargando b5m / geoEuskadi y procesando (puede tardar varios minutos)...", 0.5f);
+                using (var p = System.Diagnostics.Process.Start(psi))
+                {
+                    var errTask = p.StandardError.ReadToEndAsync();   // evita bloqueos si stderr se llena
+                    string output = p.StandardOutput.ReadToEnd();
+                    string err = errTask.Result;
+                    p.WaitForExit();
+                    Debug.Log(output);
+                    if (p.ExitCode != 0) Debug.LogError(err);
+                }
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError("No se pudo ejecutar Python (" + py + "): " + e.Message +
+                               "\nEjecuta a mano: python DataPipeline/build_hernani_data.py");
+            }
+            finally
+            {
+                EditorUtility.ClearProgressBar();
+                AssetDatabase.Refresh();
+            }
+        }
+
+        [MenuItem("Hernani Racing/Abrir carpeta de datos", false, 40)]
+        public static void OpenData()
+        {
+            EditorUtility.RevealInFinder(Path.Combine(Application.dataPath, "HernaniRacing", "Resources", "HernaniData", "meta.json"));
+        }
+    }
+}
