@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using HernaniRacing.Net;
 using UnityEngine;
 
 namespace HernaniRacing
@@ -26,6 +27,15 @@ namespace HernaniRacing
         Vector2 scroll;
         string info;
         System.Action pending;   // las acciones se aplican fuera de OnGUI (evita errores de layout)
+        public bool IsOpen { get { return open; } }
+
+        // ---- online: el líder elige, los demás ven lo mismo
+        string presetName = "";
+        RoomSettings lastSent, applied;
+        float nextSend;
+        NetSession Net { get { return NetSession.I; } }
+        bool OnlineRoom { get { return Net != null && Net.InRoom; } }
+        bool Locked { get { return OnlineRoom && !Net.IsLeader; } }
 
         static readonly Color[] PaintChoices =
         {
@@ -76,11 +86,13 @@ namespace HernaniRacing
         {
             if (!open || world == null) return;
             if (pending != null) { var p = pending; pending = null; p(); }
+            if (OnlineRoom) SyncOnline(); else { lastSent = null; applied = null; }
             var cam = game.MainCamera;
             float k = (GameInput.Fast ? 2.5f : 1f) * orthoSize * 1.2f * Time.unscaledDeltaTime;
-            Vector2 pan = GameInput.Pan;
+            bool typing = GUIUtility.keyboardControl != 0;
+            Vector2 pan = typing ? Vector2.zero : GameInput.Pan;
             camTarget += new Vector3(pan.x, 0, pan.y) * k;
-            orthoSize = Mathf.Clamp(orthoSize * (1f - GameInput.Zoom * Time.unscaledDeltaTime * 1.5f), 80f, MaxOrtho());
+            orthoSize = Mathf.Clamp(orthoSize * (1f - (typing ? 0f : GameInput.Zoom) * Time.unscaledDeltaTime * 1.5f), 80f, MaxOrtho());
             camTarget.x = Mathf.Clamp(camTarget.x, 0, world.sizeX);
             camTarget.z = Mathf.Clamp(camTarget.z, 0, world.sizeZ);
             cam.orthographicSize = orthoSize;
@@ -99,6 +111,8 @@ namespace HernaniRacing
         // ------------------------------------------------------------------ selección
         void Toggle(int node)
         {
+            if (Locked) return;
+            presetName = "";
             int i = sel.IndexOf(node);
             if (i >= 0) sel.RemoveAt(i);
             else if (sel.Count < 4) sel.Add(node);
@@ -149,6 +163,8 @@ namespace HernaniRacing
 
         public void ApplyPreset(PresetData p)
         {
+            if (Locked) return;
+            presetName = p.name;
             sel.Clear();
             for (int i = 0; i + 1 < p.points.Length && sel.Count < 4; i += 2)
             {
@@ -161,6 +177,8 @@ namespace HernaniRacing
 
         void RandomCircuit()
         {
+            if (Locked) return;
+            presetName = "Aleatorio";
             var g = world.graph;
             // cruces alrededor de lo que se está mirando en el mapa (radio 1.3 km; si hay pocos, alrededor del centro de Hernani)
             Vector3 c = camTarget;
@@ -214,6 +232,90 @@ namespace HernaniRacing
         // ------------------------------------------------------------------ GUI
         GUIStyle title, h2, txt, small, tagSt, tagBold, box, tip;
 
+        // ------------------------------------------------------------------ online
+        RoomSettings CurrentSettings()
+        {
+            var rs = NetSession.MakeSettings(sel, settings, presetName);
+            int maxAi = Mathf.Max(0, NetProto.MaxCarsPerRace - Net.Room.players.Count);
+            if (rs.opponents > maxAi) rs.opponents = (byte)maxAi;
+            return rs;
+        }
+
+        void SendSettingsNow()
+        {
+            if (!OnlineRoom || !Net.IsLeader) return;
+            var rs = CurrentSettings();
+            Net.Core.SendSettings(rs);
+            lastSent = rs;
+        }
+
+        void SyncOnline()
+        {
+            var room = Net.Room;
+            Net.SetCarAndColor(settings.carId, settings.paint);
+            if (Net.IsLeader)
+            {
+                applied = null;
+                if (room.phase != RoomPhase.Lobby || Time.unscaledTime < nextSend) return;
+                var rs = CurrentSettings();
+                if (!rs.SameAs(room.settings) && (lastSent == null || !rs.SameAs(lastSent)))
+                {
+                    Net.Core.SendSettings(rs);
+                    lastSent = rs;
+                    nextSend = Time.unscaledTime + 0.25f;
+                }
+                return;
+            }
+            lastSent = null;
+            var r = room.settings;
+            if (applied != null && r.SameAs(applied)) return;
+            applied = r.Clone();
+            sel.Clear();
+            foreach (int n in r.nodes) if (n >= 0 && n < world.graph.nodes.Length && !sel.Contains(n)) sel.Add(n);
+            presetName = r.circuitName;
+            settings.laps = r.laps; settings.opponents = r.opponents; settings.difficulty = r.difficulty;
+            settings.traffic = r.traffic; settings.pedestrians = r.pedestrians;
+            settings.freeTraffic = r.freeTraffic; settings.freePedestrians = r.freePedestrians;
+            Rebuild();
+            if (circuit != null) FocusCircuit();
+        }
+
+        void OnlineButtons(GUIStyle go, GUIStyle go2)
+        {
+            var room = Net.Room;
+            var leader = room.Leader;
+            string leaderNick = leader != null ? leader.profile.nick : "el líder";
+            var me = room.Find(Net.MyId);
+            if (room.phase == RoomPhase.Lobby)
+            {
+                if (Net.IsLeader)
+                {
+                    GUI.enabled = circuit != null && circuit.error == null;
+                    if (GUILayout.Button("¡CARRERA ONLINE!", go)) pending = () => { SendSettingsNow(); Net.Core.StartGame(GameMode.Race); };
+                    GUI.enabled = true;
+                    GUILayout.Space(6);
+                    if (GUILayout.Button("PASEO LIBRE ONLINE", go2)) pending = () => { SendSettingsNow(); Net.Core.StartGame(GameMode.Free); };
+                    GUILayout.Label("Eres el líder de la sala " + room.code + " (" + room.players.Count + " jugador" + (room.players.Count == 1 ? "" : "es") + "). En el paseo se empieza junto al cruce 1.", small);
+                }
+                else
+                {
+                    GUILayout.Label("Esperando a que " + leaderNick + " empiece la partida...", txt);
+                    GUILayout.Label("El líder elige el circuito, las vueltas, la IA y el tráfico. Tú eliges tu coche y tu color.", small);
+                }
+            }
+            else
+            {
+                if (room.phase == RoomPhase.Free && me != null && !me.inGame)
+                {
+                    if (GUILayout.Button("ENTRAR AL PASEO", go)) pending = () => Net.Core.EnterGame();
+                }
+                else if (room.phase == RoomPhase.Race && me != null && !me.inGame)
+                    GUILayout.Label("Hay una carrera en marcha. Podrás correr en la siguiente.", txt);
+                if (Net.IsLeader && GUILayout.Button("Terminar la partida para todos", go2)) pending = () => Net.Core.EndGame();
+            }
+            GUILayout.Label("Para jugar tú solo, sal de la sala (panel de la derecha).", small);
+        }
+
         void Styles()
         {
             if (title != null) return;
@@ -244,7 +346,7 @@ namespace HernaniRacing
             float ui = Screen.height / 1080f;
             Event ev = Event.current;
             Vector2 mouse = ev.mousePosition;
-            bool overPanel = panelScreenRect.Contains(mouse);
+            bool overPanel = panelScreenRect.Contains(mouse) || NetLobbyUI.Blocks(mouse);
 
             // ---- etiquetas de barrios y lugares (coordenadas de pantalla reales)
             GUI.matrix = Matrix4x4.identity;
@@ -331,7 +433,7 @@ namespace HernaniRacing
                 ev.Use();
             }
             if (ev.type == EventType.MouseUp) dragging = false;
-            if (ev.type == EventType.KeyDown && ev.keyCode == KeyCode.Backspace && sel.Count > 0) { pending = () => { if (sel.Count > 0) { sel.RemoveAt(sel.Count - 1); Rebuild(); } }; ev.Use(); }
+            if (ev.type == EventType.KeyDown && ev.keyCode == KeyCode.Backspace && sel.Count > 0 && !Locked && GUIUtility.keyboardControl == 0) { pending = () => { if (sel.Count > 0) { sel.RemoveAt(sel.Count - 1); Rebuild(); } }; ev.Use(); }
 
             // ---- panel
             GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(ui, ui, 1));
@@ -348,6 +450,9 @@ namespace HernaniRacing
             GUILayout.Label("Ratón: arrastrar = mover, rueda = zoom · WASD/flechas, Q/E · Retroceso = quitar último", small);
             GUILayout.Space(8);
 
+            bool lockUI = Locked;
+            if (lockUI) GUILayout.Label("Sala online: el circuito lo elige el líder.", txt);
+            GUI.enabled = !lockUI;
             GUILayout.Label("Cruces elegidos", h2);
             for (int i = 0; i < 4; i++)
             {
@@ -393,10 +498,11 @@ namespace HernaniRacing
             GUILayout.BeginHorizontal();
             GUILayout.Label("Rivales IA: " + settings.opponents, txt, GUILayout.Width(160));
             if (GUILayout.Button("−", GUILayout.Width(40))) settings.opponents = Mathf.Max(0, settings.opponents - 1);
-            if (GUILayout.Button("+", GUILayout.Width(40))) settings.opponents = Mathf.Min(5, settings.opponents + 1);
+            if (GUILayout.Button("+", GUILayout.Width(40))) settings.opponents = Mathf.Min(OnlineRoom ? Mathf.Max(0, NetProto.MaxCarsPerRace - Net.Room.players.Count) : 5, settings.opponents + 1);
             GUILayout.EndHorizontal();
             settings.difficulty = GUILayout.Toolbar(settings.difficulty, RaceSettings.DifficultyNames);
 
+            GUI.enabled = true;
             GUILayout.Space(8);
             GUILayout.Label("Coche", h2);
             var carsSel = CarModels.Selectable;
@@ -430,6 +536,7 @@ namespace HernaniRacing
             }
             GUILayout.EndHorizontal();
 
+            GUI.enabled = !lockUI;
             GUILayout.Space(6);
             GUILayout.Label("Tráfico y peatones", h2);
             GUILayout.BeginHorizontal();
@@ -453,20 +560,26 @@ namespace HernaniRacing
             if (GUILayout.Button("Aleatorio")) pending = RandomCircuit;
             if (GUILayout.Button("Borrar")) pending = () => { sel.Clear(); Rebuild(); };
             GUILayout.EndHorizontal();
+            GUI.enabled = true;
             GUILayout.BeginHorizontal();
             showZones = GUILayout.Toggle(showZones, " Barrios");
             showLandmarks = GUILayout.Toggle(showLandmarks, " Lugares (zoom)");
             GUILayout.EndHorizontal();
 
+            GUI.enabled = true;
             GUILayout.Space(10);
-            GUI.enabled = circuit != null && circuit.error == null;
             var go = new GUIStyle(GUI.skin.button) { fontSize = 28, fontStyle = FontStyle.Bold, fixedHeight = 60 };
+            var go2 = new GUIStyle(GUI.skin.button) { fontSize = 22, fontStyle = FontStyle.Bold, fixedHeight = 48 };
+            if (OnlineRoom) OnlineButtons(go, go2);
+            else
+            {
+            GUI.enabled = circuit != null && circuit.error == null;
             if (GUILayout.Button("¡A CORRER!", go)) { var c = circuit; pending = () => game.StartRace(c, settings); }
             GUI.enabled = true;
             GUILayout.Space(6);
-            var go2 = new GUIStyle(GUI.skin.button) { fontSize = 22, fontStyle = FontStyle.Bold, fixedHeight = 48 };
             if (GUILayout.Button("PASEO LIBRE (sin carrera)", go2)) { int start = sel.Count > 0 ? sel[0] : -1; pending = () => game.StartFreeRoam(settings, start); }
             GUILayout.Label(sel.Count > 0 ? "Empiezas junto al cruce 1." : "Empiezas en el centro de Hernani (o elige un cruce para empezar allí).", small);
+            }
 
             GUILayout.Space(10);
             foreach (var a in world.data.meta.attribution) GUILayout.Label(a, small);

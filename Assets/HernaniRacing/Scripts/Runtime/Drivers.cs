@@ -52,7 +52,7 @@ namespace HernaniRacing
             {
                 foreach (var o in others)
                 {
-                    if (o == null || o == car) continue;
+                    if (o == null || o == car || !o.gameObject.activeInHierarchy) continue;
                     Vector3 rel = car.transform.InverseTransformPoint(o.transform.position);
                     float hwL = circuit.width[idx] * 0.5f - 1.3f;
                     if (rel.z > 0 && rel.z < 16f && Mathf.Abs(rel.x) < 2.4f)

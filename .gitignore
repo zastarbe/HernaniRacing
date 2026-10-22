@@ -37,3 +37,8 @@ DataPipeline/cache/*.tif
 __pycache__/
 *.pyc
 .venv/
+
+# Servidor: compilaciones locales
+Server/**/bin/
+Server/**/obj/
+!Server/**/*.csproj

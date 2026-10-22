@@ -1,4 +1,5 @@
 using System.Collections;
+using HernaniRacing.Net;
 using UnityEngine;
 
 namespace HernaniRacing
@@ -14,6 +15,9 @@ namespace HernaniRacing
         CircuitSelector selector;
         RaceManager race;
         FreeRoamManager free;
+        public NetSession net;
+        /// <summary>Se está en el selector de circuito (menú principal).</summary>
+        public bool InMenu { get { return ready && selector != null && selector.IsOpen; } }
 
         string loadingMsg = "Cargando datos de Hernani...";
         float loadingProgress;
@@ -48,6 +52,11 @@ namespace HernaniRacing
             race.game = this;
             free = gameObject.AddComponent<FreeRoamManager>();
             free.game = this;
+            net = gameObject.AddComponent<NetSession>();
+            net.game = this;
+            var lobby = gameObject.AddComponent<NetLobbyUI>();
+            lobby.game = this;
+            lobby.net = net;
             ready = true;
             ShowSelector();
         }
@@ -128,6 +137,36 @@ namespace HernaniRacing
             race.End();
             RenderSettings.fog = true;
             free.Begin(world, s, startNode);
+        }
+
+        /// <summary>Empieza la partida online que ha lanzado el líder de la sala.</summary>
+        public bool StartOnline(RoomInfo room)
+        {
+            if (!ready) return false;
+            var s = net.SettingsForMe(room.settings);
+            if (room.phase == RoomPhase.Race)
+            {
+                var c = Circuit.Build(world.graph, room.settings.nodes);
+                if (c == null || c.error != null)
+                {
+                    net.ShowToast("No se puede montar el circuito de la sala" + (c != null ? ": " + c.error : ""), 5f);
+                    return false;
+                }
+                selector.Close();
+                free.End();
+                RenderSettings.fog = true;
+                race.BeginOnline(world, c, s, net, room);
+                return true;
+            }
+            if (room.phase == RoomPhase.Free)
+            {
+                selector.Close();
+                race.End();
+                RenderSettings.fog = true;
+                free.BeginOnline(world, s, room.settings.freeStartNode, net, room);
+                return true;
+            }
+            return false;
         }
 
         void OnGUI()

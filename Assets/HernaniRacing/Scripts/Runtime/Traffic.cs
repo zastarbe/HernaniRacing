@@ -19,6 +19,11 @@ namespace HernaniRacing
         public int maxCars = 24, maxPeds = 40;
         public readonly List<TrafficCar> cars = new List<TrafficCar>();
         public readonly List<Pedestrian> peds = new List<Pedestrian>();
+        // online: tráfico/peatones que simulan otros jugadores y coches de los otros jugadores
+        public readonly List<TrafficProxy> remoteCars = new List<TrafficProxy>();
+        public readonly List<PedProxy> remotePeds = new List<PedProxy>();
+        public readonly List<Transform> others = new List<Transform>();
+        ushort nextNetId = 1;
         readonly Dictionary<long, int> crossingBusy = new Dictionary<long, int>();
         readonly Dictionary<long, float> crossingWaiting = new Dictionary<long, float>();
         System.Random rnd = new System.Random();
@@ -68,23 +73,50 @@ namespace HernaniRacing
             {
                 var c = cars[i];
                 if (c == null) { cars.RemoveAt(i); continue; }
-                float d = Flat(c.transform.position - pp);
+                float dMine = Flat(c.transform.position - pp);
+                float d = NearestPlayer(c.transform.position, dMine);
                 bool expired = c.Crashed && Time.time - c.crashTime > 12f && d > 25f;
-                if (d > 340f || c.WantsDespawn || expired || !carsOn) { Destroy(c.gameObject); cars.RemoveAt(i); }
+                if (d > 340f || dMine > 700f || c.WantsDespawn || expired || !carsOn) { Destroy(c.gameObject); cars.RemoveAt(i); }
             }
             for (int i = peds.Count - 1; i >= 0; i--)
             {
                 var p = peds[i];
                 if (p == null) { peds.RemoveAt(i); continue; }
-                if (Flat(p.transform.position - pp) > 230f || p.WantsDespawn || !pedestriansOn) { p.Release(); Destroy(p.gameObject); peds.RemoveAt(i); }
+                float dMine = Flat(p.transform.position - pp);
+                if (NearestPlayer(p.transform.position, dMine) > 230f || dMine > 500f || p.WantsDespawn || !pedestriansOn) { p.Release(); Destroy(p.gameObject); peds.RemoveAt(i); }
             }
             if (Time.time < nextSpawn) return;
             nextSpawn = Time.time + 0.25f;
-            if (carsOn && cars.Count < maxCars) TrySpawnCar(pp, cars.Count < maxCars / 2 ? 45f : 75f, 250f);
-            if (pedestriansOn && peds.Count < maxPeds) TrySpawnPed(pp, 30f, 160f);
+            // online: los coches y peatones que ya trae otro jugador cerca de mí cuentan para la densidad
+            int nCars = cars.Count, nPeds = peds.Count;
+            foreach (var rc in remoteCars) if (rc != null && Flat(rc.transform.position - pp) < 260f) nCars++;
+            foreach (var rp in remotePeds) if (rp != null && Flat(rp.transform.position - pp) < 170f) nPeds++;
+            if (carsOn && nCars < maxCars) TrySpawnCar(pp, nCars < maxCars / 2 ? 45f : 75f, 250f);
+            if (pedestriansOn && nPeds < maxPeds) TrySpawnPed(pp, 30f, 160f);
         }
 
         static float Flat(Vector3 v) { v.y = 0; return v.magnitude; }
+
+        /// <summary>Distancia al jugador más cercano (yo u otro jugador online).</summary>
+        float NearestPlayer(Vector3 p, float dMine)
+        {
+            float d = dMine;
+            foreach (var o in others) if (o != null) d = Mathf.Min(d, Flat(o.position - p));
+            return d;
+        }
+
+        /// <summary>No hacer aparecer nada delante de las narices de otro jugador.</summary>
+        bool NearOther(Vector3 p, float r)
+        {
+            foreach (var o in others) if (o != null && Flat(o.position - p) < r) return true;
+            return false;
+        }
+
+        ushort NewNetId()
+        {
+            if (nextNetId == 0 || nextNetId == 0xFFFF) nextNetId = 1;
+            return nextNetId++;
+        }
 
         void TrySpawnCar(Vector3 pp, float rMin, float rMax)
         {
@@ -104,6 +136,8 @@ namespace HernaniRacing
                 bool clear = true;
                 foreach (var c in cars) if (c != null && Flat(c.transform.position - p) < 18f) { clear = false; break; }
                 foreach (var dr in drivers) if (dr != null && Flat(dr.transform.position - p) < 25f) { clear = false; break; }
+                foreach (var rc in remoteCars) if (rc != null && Flat(rc.transform.position - p) < 18f) { clear = false; break; }
+                if (clear && NearOther(p, rMin)) clear = false;
                 if (!clear) continue;
                 string id = models.Count > 0 ? models[rnd.Next(models.Count)] : null;
                 var md = CarModels.Get(id);
@@ -111,6 +145,9 @@ namespace HernaniRacing
                 Color paint = id == "taxi" || id == "policia" || id == "ambulancia" ? CarModels.DefaultPaint(id) : Paints[rnd.Next(Paints.Length)];
                 var go = CarModels.CreateVisual(id, paint, root);
                 var tc = go.AddComponent<TrafficCar>();
+                tc.netId = NewNetId();
+                tc.modelIndex = models.IndexOf(id);
+                tc.paint = paint;
                 tc.Init(this, md, ei, fwd, s, rnd.Next());
                 cars.Add(tc);
                 return;
@@ -130,9 +167,11 @@ namespace HernaniRacing
                 Vector3 p = e.PointAt(s, true);
                 float d = Flat(p - pp);
                 if (d < rMin || d > rMax) continue;
+                if (NearOther(p, rMin)) continue;
                 var go = new GameObject("Peaton");
                 go.transform.SetParent(root, false);
                 var ped = go.AddComponent<Pedestrian>();
+                ped.netId = NewNetId();
                 ped.Init(this, ei, rnd.Next(2) == 0, rnd.Next(2) == 0 ? 1 : -1, s, rnd.Next());
                 peds.Add(ped);
                 return;
@@ -143,7 +182,8 @@ namespace HernaniRacing
         public IEnumerable<KeyValuePair<Vector3, Vector3>> Vehicles()
         {
             foreach (var c in cars) if (c != null) yield return new KeyValuePair<Vector3, Vector3>(c.transform.position, c.Velocity);
-            foreach (var d in drivers) if (d != null && d.Body != null) yield return new KeyValuePair<Vector3, Vector3>(d.transform.position, d.Body.Vel());
+            foreach (var d in drivers) if (d != null && d.Body != null && d.gameObject.activeInHierarchy) yield return new KeyValuePair<Vector3, Vector3>(d.transform.position, d.Body.Vel());
+            foreach (var r in remoteCars) if (r != null) yield return new KeyValuePair<Vector3, Vector3>(r.transform.position, r.Velocity);
         }
     }
 
@@ -178,6 +218,9 @@ namespace HernaniRacing
         int lastNodeChecked = -1;
         public bool Crashed { get; private set; }
         public float crashTime;
+        public ushort netId;            // online: identificador para los demás jugadores
+        public int modelIndex;
+        public Color paint;
         public bool WantsDespawn { get; private set; }
         public Vector3 Velocity { get { return Crashed && rb != null ? rb.Vel() : transform.forward * v; } }
         public float Speed { get { return v; } }
@@ -400,9 +443,11 @@ namespace HernaniRacing
                 if (o == null || o == this) continue;
                 Leader(o.transform, o.Velocity, o.HalfLength, ref gap, ref lv);
             }
+            foreach (var rc in sys.remoteCars)
+                if (rc != null) Leader(rc.transform, rc.Velocity, rc.HalfLength, ref gap, ref lv);
             foreach (var d in sys.drivers)
             {
-                if (d == null) continue;
+                if (d == null || !d.gameObject.activeInHierarchy) continue;
                 float hl = d.model != null ? (d.model.boundsMax[2] - d.model.boundsMin[2]) * 0.5f : 2.1f;
                 Leader(d.transform, d.Body != null ? d.Body.Vel() : Vector3.zero, hl, ref gap, ref lv);
             }
@@ -529,9 +574,23 @@ namespace HernaniRacing
                 if (o.DistToEnd > 30f || (o.Speed < 0.3f && o.DistToEnd > 4f)) continue;
                 if (Conflicts(sign, myPri, myDir, o.ApproachEdge, -g.DepartDir(o.ApproachEdge, node, 8f), eta)) return true;
             }
+            foreach (var rc in sys.remoteCars)
+            {
+                if (rc == null || rc.crashed) continue;
+                Vector3 rel = nodeP - rc.transform.position; rel.y = 0;
+                float dist = rel.magnitude;
+                if (dist > 35f || dist < 1f) continue;
+                Vector3 vel = rc.Velocity; vel.y = 0;
+                float closing = Vector3.Dot(vel, rel / dist);
+                if (closing < 1.5f) continue;
+                float dd;
+                int de = g.NearestEdge(rc.transform.position, 10f, out dd);
+                if (de == myEdge) continue;
+                if (Conflicts(sign, myPri, myDir, de, vel.normalized, dist / closing)) return true;
+            }
             foreach (var d in sys.drivers)
             {
-                if (d == null || d.Body == null) continue;
+                if (d == null || d.Body == null || !d.gameObject.activeInHierarchy) continue;
                 Vector3 rel = nodeP - d.transform.position; rel.y = 0;
                 float dist = rel.magnitude;
                 if (dist > 35f || dist < 1f) continue;
@@ -561,6 +620,9 @@ namespace HernaniRacing
         {
             foreach (var o in sys.cars)
                 if (o != null && o != this && o.JunctionNode == node && o.Speed < 6f && Vector3.Dot(o.Velocity, transform.forward) < 3f)
+                    return true;
+            foreach (var rc in sys.remoteCars)
+                if (rc != null && rc.junction == node && rc.speed < 6f && Vector3.Dot(rc.Velocity, transform.forward) < 3f)
                     return true;
             return false;
         }
@@ -598,6 +660,17 @@ namespace HernaniRacing
         float hop;
         Transform legL, legR, armL, armR, body;
         public bool WantsDespawn { get; private set; }
+        public ushort netId;       // online
+        public int lookSeed;       // aspecto (ropa, piel, altura): lo reciben los demás jugadores
+
+        /// <summary>Estado para la red: 0 andando, 1 esperando en un paso de cebra, 2 cruzando.</summary>
+        public byte NetState(out int crossEdge, out float crossPos)
+        {
+            crossEdge = edge; crossPos = crossS;
+            if (state == State.Wait) return 1;
+            if (state == State.Cross) return 2;
+            return 0;
+        }
 
         static Mesh cube;
 
@@ -618,11 +691,18 @@ namespace HernaniRacing
             edge = e; fwd = forward; side = sd; s = sEdge;
             speed = 1.1f + (float)rnd.NextDouble() * 0.5f;
             phase = (float)rnd.NextDouble() * 6f;
+            lookSeed = rnd.Next();
             BuildBody();
             transform.position = SidewalkPoint(edge, s, side);
         }
 
         void BuildBody()
+        {
+            body = BuildRig(transform, lookSeed, out legL, out legR, out armL, out armR);
+        }
+
+        /// <summary>Monta el muñeco low poly con el aspecto que da la semilla (igual en todos los PCs).</summary>
+        public static Transform BuildRig(Transform parent, int look, out Transform legL, out Transform legR, out Transform armL, out Transform armR)
         {
             if (cube == null)
             {
@@ -630,6 +710,7 @@ namespace HernaniRacing
                 mb.Box(0, Vector3.zero, Vector3.right, Vector3.up, Vector3.forward, Vector3.one * 0.5f);
                 cube = mb.Build("ped_cube");
             }
+            var rnd = new System.Random(look);
             Color[] shirts = { new Color(0.8f, 0.2f, 0.2f), new Color(0.2f, 0.4f, 0.8f), new Color(0.95f, 0.95f, 0.9f), new Color(0.2f, 0.6f, 0.3f), new Color(0.9f, 0.7f, 0.2f), new Color(0.15f, 0.15f, 0.18f), new Color(0.6f, 0.3f, 0.6f) };
             Color[] pants = { new Color(0.15f, 0.2f, 0.35f), new Color(0.1f, 0.1f, 0.1f), new Color(0.45f, 0.4f, 0.3f), new Color(0.3f, 0.3f, 0.32f) };
             Color[] skins = { new Color(0.96f, 0.8f, 0.66f), new Color(0.85f, 0.65f, 0.5f), new Color(0.6f, 0.42f, 0.3f), new Color(0.4f, 0.28f, 0.2f) };
@@ -637,8 +718,8 @@ namespace HernaniRacing
             var shirt = Mat.Color(shirts[rnd.Next(shirts.Length)], 0.2f);
             var pant = Mat.Color(pants[rnd.Next(pants.Length)], 0.2f);
             var skin = Mat.Color(skins[rnd.Next(skins.Length)], 0.3f);
-            body = new GameObject("cuerpo").transform;
-            body.SetParent(transform, false);
+            var body = new GameObject("cuerpo").transform;
+            body.SetParent(parent, false);
             body.localScale = Vector3.one * hgt;
             Part(body, "torso", new Vector3(0, 1.22f, 0), new Vector3(0.42f, 0.6f, 0.24f), shirt);
             Part(body, "cabeza", new Vector3(0, 1.66f, 0), new Vector3(0.22f, 0.25f, 0.23f), skin);
@@ -646,6 +727,7 @@ namespace HernaniRacing
             legR = Limb(body, new Vector3(0.11f, 0.92f, 0), new Vector3(0.16f, 0.9f, 0.18f), pant);
             armL = Limb(body, new Vector3(-0.27f, 1.48f, 0), new Vector3(0.11f, 0.62f, 0.12f), shirt);
             armR = Limb(body, new Vector3(0.27f, 1.48f, 0), new Vector3(0.11f, 0.62f, 0.12f), shirt);
+            return body;
         }
 
         static void Part(Transform parent, string name, Vector3 pos, Vector3 size, Material m)

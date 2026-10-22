@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using HernaniRacing.Net;
 using UnityEngine;
 
 namespace HernaniRacing
@@ -37,6 +38,11 @@ namespace HernaniRacing
         public int position;
         public float distToLine;
         public float nextRejoinCheck;
+        // online
+        public NetCar net;
+        public bool remote;          // lo simula otro PC (otro jugador, o la IA si no soy el líder)
+        public bool gone;            // se ha desconectado
+        public int aiIndex = -1;
     }
 
     /// <summary>Gestión de la carrera: parrilla, cuenta atrás, vueltas, posiciones, HUD y resultados.</summary>
@@ -76,13 +82,39 @@ namespace HernaniRacing
 
         public bool Active { get; private set; }
 
+        // ---- online
+        bool online;
+        NetSession net;
+        NetWorldSync sync;
+        double netStartAt;
+        string aiCarId;
+        /// <summary>Reloj de la carrera: el del servidor si es online (igual para todos), si no el del juego.</summary>
+        float Clock { get { return online && net != null ? (float)(net.Core.ServerTime - netStartAt) : Time.time; } }
+
         public void Begin(World w, Circuit c, RaceSettings s)
         {
             End();
+            online = false; net = null;
+            aiCarId = s.carId;
+            BeginCommon(w, c, s, null);
+        }
+
+        /// <summary>Carrera online: los jugadores de la sala (y la IA del líder) en la misma parrilla.</summary>
+        public void BeginOnline(World w, Circuit c, RaceSettings s, NetSession ns, RoomInfo room)
+        {
+            End();
+            online = true; net = ns;
+            netStartAt = room.startAt;
+            aiCarId = string.IsNullOrEmpty(room.settings.aiCar) ? s.carId : room.settings.aiCar;
+            BeginCommon(w, c, s, room);
+        }
+
+        void BeginCommon(World w, Circuit c, RaceSettings s, RoomInfo room)
+        {
             world = w; circuit = c; settings = s;
             Active = true;
-            // perfil de velocidad de la IA según el coche elegido (todos llevan el mismo)
-            var md = CarModels.Get(s.carId);
+            // perfil de velocidad de la IA según el coche de la IA (offline: el mismo que el jugador)
+            var md = CarModels.Get(aiCarId);
             float mu = md != null ? Mathf.Clamp(1.05f * md.grip / 1.25f, 0.9f, 1.9f) : 1.05f;
             float dec = md != null ? Mathf.Clamp(7.5f * (md.brake / Mathf.Max(md.mass, 1f)) / 9.6f, 6f, 12f) : 7.5f;
             float vmax = md != null ? md.maxSpeed * 0.95f : 42f;
@@ -90,8 +122,10 @@ namespace HernaniRacing
             circuitRoot = CircuitVisuals.Build(circuit);
             BuildMinimap();
 
+            if (room != null) BuildOnlineRacers(room);
+            else
+            {
             int total = s.opponents + 1;
-            float[] skills = { 0.80f, 0.90f, 0.99f };
             for (int k = 0; k < total; k++)
             {
                 bool isPlayer = k == total - 1;
@@ -107,15 +141,9 @@ namespace HernaniRacing
                     r.car.gameObject.AddComponent<PlayerDriver>().car = r.car;
                     player = r;
                 }
-                else
-                {
-                    r.ai = r.car.gameObject.AddComponent<AIDriver>();
-                    r.ai.car = r.car;
-                    r.ai.circuit = circuit;
-                    r.ai.skill = skills[Mathf.Clamp(s.difficulty, 0, 2)] + (k % 3 - 1) * 0.025f;
-                    r.ai.lane = (k % 2 == 0 ? -1 : 1) * 0.8f;
-                }
+                else SetupAI(r, k);
                 racers.Add(r);
+            }
             }
             var cars = racers.Select(x => x.car).ToList();
             foreach (var r in racers) if (r.ai != null) r.ai.others = cars;
@@ -139,16 +167,96 @@ namespace HernaniRacing
                 traffic.maxCars = 16;
                 foreach (var r in racers) traffic.drivers.Add(r.car);
             }
+            if (online)
+            {
+                sync = NetWorldSync.Create(net, world, traffic, player.car.transform, false);
+                foreach (var r in racers)
+                {
+                    byte owner = r.aiIndex >= 0 ? NetProto.AiOwner : (r.isPlayer ? net.MyId : r.net.owner);
+                    byte local = (byte)(r.aiIndex >= 0 ? r.aiIndex : 0);
+                    r.net = sync.Register(owner, local, r.car, r.remote, r.name, r.color);
+                }
+                net.BecameLeader += AdoptAI;
+            }
             arrows = GuideArrows.Create(circuit);
             mapZoom = false;
             if (world.trees != null) { world.trees.drawAll = false; world.trees.drawDistance = 900f; }
 
             state = State.Countdown;
-            countdown = 3.99f;
+            countdown = online ? (float)(netStartAt - net.Core.ServerTime) : 3.99f;
             paused = false;
             Time.timeScale = 1f;
             finishCounter = 0;
             foreach (var r in racers) r.car.frozen = true;
+        }
+
+        static readonly float[] Skills = { 0.80f, 0.90f, 0.99f };
+
+        void SetupAI(Racer r, int k)
+        {
+            r.ai = r.car.gameObject.AddComponent<AIDriver>();
+            r.ai.car = r.car;
+            r.ai.circuit = circuit;
+            r.ai.skill = Skills[Mathf.Clamp(settings.difficulty, 0, 2)] + (k % 3 - 1) * 0.025f;
+            r.ai.lane = (k % 2 == 0 ? -1 : 1) * 0.8f;
+        }
+
+        /// <summary>Parrilla online: delante la IA y detrás los jugadores en el orden de la sala.</summary>
+        void BuildOnlineRacers(RoomInfo room)
+        {
+            bool leader = room.leaderId == net.MyId;
+            int nAi = settings.opponents;
+            for (int k = 0; k < nAi; k++)
+            {
+                var r = new Racer { name = AINames[k % AINames.Length] + " (IA)", color = AIColors[k % AIColors.Length], aiIndex = k };
+                r.car = CarModels.Create(aiCarId, "Coche " + r.name, r.color, false);
+                if (leader) SetupAI(r, k); else r.remote = true;
+                racers.Add(r);
+            }
+            foreach (var p in room.players.OrderBy(x => x.slot))
+            {
+                if (!p.inGame) continue;
+                bool me = p.id == net.MyId;
+                var col = me ? settings.paint : NetSession.IntToColor(p.profile.color);
+                var r = new Racer { name = p.profile.nick, isPlayer = me, color = col, remote = !me };
+                r.car = CarModels.Create(me ? settings.carId : p.profile.carId, me ? "Coche jugador" : "Coche " + p.profile.nick, col, me);
+                if (me) { r.car.gameObject.AddComponent<PlayerDriver>().car = r.car; player = r; }
+                else r.net = new NetCar { owner = p.id };
+                racers.Add(r);
+            }
+            if (player == null)
+            {
+                // no debería pasar: por si acaso, un coche propio al final
+                var r = new Racer { name = net.nick, isPlayer = true, color = settings.paint };
+                r.car = CarModels.Create(settings.carId, "Coche jugador", settings.paint, true);
+                r.car.gameObject.AddComponent<PlayerDriver>().car = r.car;
+                player = r;
+                racers.Add(r);
+            }
+        }
+
+        /// <summary>El líder se ha ido y ahora lo soy yo: la IA pasa a simularse en este PC.</summary>
+        void AdoptAI()
+        {
+            if (!Active || !online || sync == null) return;
+            var cars = racers.Select(x => x.car).ToList();
+            foreach (var r in racers)
+            {
+                if (r.aiIndex < 0 || !r.remote || r.car == null) continue;
+                sync.TakeOver(r.net);
+                r.remote = false;
+                SetupAI(r, r.aiIndex);
+                r.ai.others = cars;
+                r.progress = r.net.progress; r.lapsDone = r.net.laps; r.finished = r.net.Finished;
+                r.finishTime = r.net.finishTime; r.bestLap = r.net.bestLap;
+                float d;
+                r.idx = circuit.Closest(r.car.transform.position, -1, 0, out d);
+                r.lastS = circuit.ProjectS(r.car.transform.position, r.idx);
+                r.lapStart = Clock;
+                r.ai.ResetTracking();
+                if (state != State.Racing) r.car.frozen = true;
+            }
+            Flash("Ahora eres el líder de la sala", 2f);
         }
 
         void PlaceOnGrid()
@@ -199,6 +307,9 @@ namespace HernaniRacing
 
         public void End()
         {
+            if (net != null) net.BecameLeader -= AdoptAI;
+            if (sync != null) Destroy(sync.gameObject);
+            sync = null;
             foreach (var r in racers) if (r.car != null) Destroy(r.car.gameObject);
             racers.Clear();
             player = null;
@@ -218,44 +329,78 @@ namespace HernaniRacing
         {
             if (pending != null) { var pa = pending; pending = null; pa(); }
             if (!Active) return;
-            if (GameInput.PausePressed && state != State.Finished)
+            if (GameInput.PausePressed && (state != State.Finished || online))
             {
                 paused = !paused;
-                Time.timeScale = paused ? 0f : 1f;
+                if (!online) Time.timeScale = paused ? 0f : 1f;     // online no se puede parar el tiempo
             }
             if (GameInput.MapPressed) showMinimap = !showMinimap;
             if (GameInput.MapZoomPressed) mapZoom = !mapZoom;
             if (GameInput.ArrowsPressed && arrows != null) arrows.show = !arrows.show;
-            if (paused) return;
+            if (paused && !online) return;
 
             if (state == State.Countdown)
             {
-                countdown -= Time.deltaTime;
+                if (online) countdown = (float)(netStartAt - net.Core.ServerTime);
+                else countdown -= Time.deltaTime;
                 if (countdown <= 0f)
                 {
                     state = State.Racing;
-                    raceStart = Time.time;
+                    raceStart = online ? 0f : Time.time;
                     foreach (var r in racers) { r.car.frozen = false; r.lapStart = raceStart; }
                     Flash("¡YA!", 1.2f);
                 }
             }
-            if (state != State.Countdown) raceTime = Time.time - raceStart;
+            if (state != State.Countdown) raceTime = Clock - raceStart;
 
             foreach (var r in racers) Track(r);
+            if (online)
+                foreach (var r in racers)
+                {
+                    if (r.remote || r.net == null) continue;
+                    r.net.progress = r.progress; r.net.laps = (byte)Mathf.Clamp(r.lapsDone, 0, 255);
+                    r.net.finishTime = r.finishTime; r.net.bestLap = r.bestLap;
+                    byte f = 0;
+                    if (r.finished) f |= CarState.Finished;
+                    if (r.offTrack) f |= CarState.OffTrack;
+                    if (r.wrongWay) f |= CarState.WrongWay;
+                    r.net.flags = f;
+                }
             if (arrows != null && player != null)
                 arrows.Place(player.lastS, !player.offTrack && !player.finished && !player.wrongWay);
 
             // posiciones
-            var order = racers.OrderByDescending(r => r.finished ? 1e9f - r.finishOrder : r.progress).ToList();
+            // online: el orden de llegada sale del tiempo de meta (reloj común), igual en todos los PCs
+            var order = racers.OrderBy(r => r.gone ? 1 : 0).ThenByDescending(r => r.finished ? 1e9f - (online ? r.finishTime : r.finishOrder) : r.progress).ToList();
             for (int i = 0; i < order.Count; i++) order[i].position = i + 1;
 
             if (player != null && state == State.Racing && GameInput.ResetPressed) ResetRacer(player);
-            if (state == State.Finished && Time.time - finishedAt > 45f)
+            if (state == State.Finished && !online && Time.time - finishedAt > 45f)
                 foreach (var r in racers) if (!r.finished) r.car.frozen = true;
+            if (online) CheckGone();
+        }
+
+        void CheckGone()
+        {
+            foreach (var r in racers)
+            {
+                if (r.gone || r.net == null || !r.net.gone) continue;
+                r.gone = true;
+                foreach (var o in racers) if (o.ai != null && o.ai.others != null) o.ai.others.Remove(r.car);
+            }
         }
 
         void Track(Racer r)
         {
+            if (r.remote)
+            {
+                if (r.net == null || r.gone) return;
+                r.progress = r.net.progress; r.lapsDone = r.net.laps; r.bestLap = r.net.bestLap;
+                if (r.net.Finished && !r.finished) { r.finished = true; r.finishTime = r.net.finishTime; r.finishOrder = ++finishCounter; }
+                r.offTrack = (r.net.flags & CarState.OffTrack) != 0;
+                r.wrongWay = (r.net.flags & CarState.WrongWay) != 0;
+                return;
+            }
             var car = r.car;
             Vector3 p = car.transform.position;
             float d;
@@ -302,22 +447,22 @@ namespace HernaniRacing
             int laps = Mathf.FloorToInt(r.progress / L);
             if (!r.finished && laps > r.lapsDone)
             {
-                float lt = Time.time - r.lapStart;
+                float lt = Clock - r.lapStart;
                 r.lapTimes.Add(lt);
                 if (r.bestLap < 0 || lt < r.bestLap) r.bestLap = lt;
-                r.lapStart = Time.time;
+                r.lapStart = Clock;
                 r.lapsDone = laps;
                 if (r.isPlayer && laps < settings.laps)
                     Flash(laps == settings.laps - 1 ? "¡ÚLTIMA VUELTA!  " + FormatTime(lt) : "Vuelta " + laps + "  " + FormatTime(lt), 2.5f);
                 if (r.lapsDone >= settings.laps)
                 {
                     r.finished = true;
-                    r.finishTime = Time.time - raceStart;
+                    r.finishTime = Clock - raceStart;
                     r.finishOrder = ++finishCounter;
                     if (r.isPlayer)
                     {
                         state = State.Finished;
-                        finishedAt = Time.time;
+                        finishedAt = Clock;
                         Flash("¡META!", 3f);
                         // el jugador pasa a "piloto automático" lento
                         var pd = car.GetComponent<PlayerDriver>();
@@ -430,7 +575,7 @@ namespace HernaniRacing
             GUI.Label(new Rect(36, 62, 300, 34), "POSICIÓN  " + player.position + " / " + racers.Count, mid);
             float cur = state == State.Countdown ? 0 : (player.finished ? player.finishTime : raceTime);
             GUI.Label(new Rect(36, 100, 300, 26), "Tiempo      " + FormatTime(cur), label);
-            float lapNow = state == State.Racing && !player.finished ? Time.time - player.lapStart : 0;
+            float lapNow = state == State.Racing && !player.finished ? Clock - player.lapStart : 0;
             GUI.Label(new Rect(36, 126, 300, 26), "Vuelta       " + FormatTime(lapNow), label);
             GUI.Label(new Rect(36, 152, 300, 26), "Última       " + FormatTime(player.lapTimes.Count > 0 ? player.lapTimes[player.lapTimes.Count - 1] : -1), label);
             GUI.Label(new Rect(36, 178, 300, 26), "Mejor        " + FormatTime(player.bestLap), label);
@@ -481,6 +626,7 @@ namespace HernaniRacing
                 string gap = "";
                 if (r != player && !r.finished && !player.finished) gap = (r.progress - player.progress).ToString("+0;-0") + " m";
                 if (r.finished) gap = FormatTime(r.finishTime);
+                if (r.gone) gap = "fuera";
                 var st = r.isPlayer ? mid : label;
                 GUI.Label(new Rect(58, y, 160, 26), r.position + ". " + r.name, st);
                 GUI.Label(new Rect(190, y, 150, 26), gap, right);
@@ -499,7 +645,7 @@ namespace HernaniRacing
                 if (traffic != null)
                     foreach (var tc in traffic.cars) if (tc != null) map.Marker(tc.transform.position, tc.transform.forward, new Color(0.75f, 0.75f, 0.75f), false, mapZoom ? 7 : 4);
                 foreach (var r in racers)
-                    if (!r.isPlayer) map.Marker(r.car.transform.position, r.car.transform.forward, r.color, false, mapZoom ? 12 : 10);
+                    if (!r.isPlayer && !r.gone) map.Marker(r.car.transform.position, r.car.transform.forward, r.color, false, mapZoom ? 12 : 10);
                 map.Marker(pp2, player.car.transform.forward, player.color, true, mapZoom ? 24 : 20);
                 GUI.Label(new Rect(mr.x, mr.yMax + 4, ms, 22), (mapZoom ? "Zoom 200 m" : circuit.length.ToString("F0") + " m · desnivel +" + circuit.elevationGain.ToString("F0") + " m") + "  ·  N zoom · M ocultar", small);
             }
@@ -514,7 +660,8 @@ namespace HernaniRacing
             if (state == State.Countdown)
             {
                 int n = Mathf.CeilToInt(countdown - 1f);
-                GUI.Label(new Rect(0, H / 2 - 160, W, 160), n >= 1 ? n.ToString() : "¡YA!", centerHuge);
+                if (n >= 4) GUI.Label(new Rect(0, H / 2 - 160, W, 160), "Preparados...", new GUIStyle(centerHuge) { fontSize = 64 });
+                else GUI.Label(new Rect(0, H / 2 - 160, W, 160), n >= 1 ? n.ToString() : "¡YA!", centerHuge);
             }
             else if (Time.unscaledTime < messageUntil && !string.IsNullOrEmpty(message))
             {
@@ -546,6 +693,14 @@ namespace HernaniRacing
             Rect r = new Rect(W / 2 - 200, H / 2 - 150, 400, 300);
             GUI.Box(r, GUIContent.none, box);
             GUI.Label(new Rect(r.x, r.y + 20, r.width, 50), "PAUSA", new GUIStyle(mid) { alignment = TextAnchor.MiddleCenter, fontSize = 36 });
+            if (online)
+            {
+                GUI.Label(new Rect(r.x, r.y + 56, r.width, 30), "(online: la carrera sigue)", new GUIStyle(small) { alignment = TextAnchor.MiddleCenter });
+                if (Button(new Rect(r.x + 60, r.y + 90, 280, 50), "Continuar")) paused = false;
+                if (Button(new Rect(r.x + 60, r.y + 150, 280, 50), "Salir a la sala")) { paused = false; pending = net.LeaveGame; }
+                if (net.IsLeader && Button(new Rect(r.x + 60, r.y + 210, 280, 50), "Terminar para todos")) { paused = false; pending = net.Core.EndGame; }
+                return;
+            }
             if (Button(new Rect(r.x + 60, r.y + 90, 280, 50), "Continuar")) { paused = false; Time.timeScale = 1f; }
             if (Button(new Rect(r.x + 60, r.y + 150, 280, 50), "Reiniciar carrera")) { paused = false; pending = () => Begin(world, circuit, settings); }
             if (Button(new Rect(r.x + 60, r.y + 210, 280, 50), "Elegir otro circuito")) { paused = false; pending = game.ShowSelector; }
@@ -553,7 +708,7 @@ namespace HernaniRacing
 
         void Results(float W, float H)
         {
-            if (Time.time - finishedAt < 2.5f) return;
+            if (Clock - finishedAt < 2.5f) return;
             var order = racers.OrderBy(r => r.position).ToList();
             float h = 200 + order.Count * 34;
             Rect r = new Rect(W / 2 - 330, H / 2 - h / 2, 660, h);
@@ -567,6 +722,7 @@ namespace HernaniRacing
                 GUI.Label(new Rect(r.x + 66, y, 220, 30), x.position + ". " + x.name, x.isPlayer ? mid : label);
                 string t;
                 if (x.finished) t = FormatTime(x.finishTime);
+                else if (x.gone) t = "abandona";
                 else
                 {
                     float avg = raceTime > 1 ? Mathf.Max(x.progress, 1f) / raceTime : 10f;
@@ -575,6 +731,20 @@ namespace HernaniRacing
                 }
                 GUI.Label(new Rect(r.x + 280, y, 220, 30), t, label);
                 GUI.Label(new Rect(r.x + 480, y, 160, 30), "mejor " + FormatTime(x.bestLap), small);
+            }
+            if (online)
+            {
+                if (net.IsLeader)
+                {
+                    if (Button(new Rect(r.x + 60, r.yMax - 80, 250, 52), "Volver a la sala")) pending = net.Core.EndGame;
+                    GUI.Label(new Rect(r.x + 330, r.yMax - 80, 300, 52), "Todos vuelven a la sala para\nelegir otra carrera", small);
+                }
+                else
+                {
+                    if (Button(new Rect(r.x + 60, r.yMax - 80, 250, 52), "Salir a la sala")) pending = net.LeaveGame;
+                    GUI.Label(new Rect(r.x + 330, r.yMax - 80, 300, 52), "El líder decide la siguiente\ncarrera", small);
+                }
+                return;
             }
             if (Button(new Rect(r.x + 60, r.yMax - 80, 250, 52), "Repetir carrera")) pending = () => Begin(world, circuit, settings);
             if (Button(new Rect(r.x + 350, r.yMax - 80, 250, 52), "Elegir otro circuito")) pending = game.ShowSelector;

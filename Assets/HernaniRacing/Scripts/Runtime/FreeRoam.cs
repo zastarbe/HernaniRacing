@@ -1,3 +1,4 @@
+using HernaniRacing.Net;
 using UnityEngine;
 
 namespace HernaniRacing
@@ -29,9 +30,34 @@ namespace HernaniRacing
         System.Action pending;
         public bool Active { get; private set; }
 
+        // ---- online
+        bool online;
+        NetSession net;
+        NetWorldSync sync;
+        int spawnSlot;
+
         public void Begin(World w, RaceSettings s, int startNode)
         {
             End();
+            online = false; net = null; spawnSlot = 0;
+            BeginCommon(w, s, startNode);
+        }
+
+        /// <summary>Paseo libre online: todos los de la sala por Hernani a la vez, con tráfico y peatones.</summary>
+        public void BeginOnline(World w, RaceSettings s, int startNode, NetSession ns, RoomInfo room)
+        {
+            End();
+            online = true; net = ns;
+            var me = room.Find(ns.MyId);
+            spawnSlot = me != null ? me.slot : 0;
+            BeginCommon(w, s, startNode);
+            sync = NetWorldSync.Create(ns, w, traffic, car.transform, true);
+            sync.Register(ns.MyId, 0, car, false, ns.nick, s.paint);
+            Flash("Paseo libre online · sala " + room.code, 2.5f);
+        }
+
+        void BeginCommon(World w, RaceSettings s, int startNode)
+        {
             world = w; settings = s;
             Active = true;
             car = CarModels.Create(s.carId, "Coche jugador", s.paint, true);
@@ -62,6 +88,8 @@ namespace HernaniRacing
 
         public void End()
         {
+            if (sync != null) Destroy(sync.gameObject);
+            sync = null;
             if (car != null) Destroy(car.gameObject);
             car = null;
             if (traffic != null) Destroy(traffic.gameObject);
@@ -82,6 +110,21 @@ namespace HernaniRacing
             var e = g.edges[ei];
             float s = Mathf.Clamp(e.length * 0.5f, 0, e.length);
             if (node >= 0) s = node == e.a ? Mathf.Min(e.length * 0.5f, Lanes.Trim(g, node) + 8f) : (node == e.b ? Mathf.Max(e.length * 0.5f, e.length - Lanes.Trim(g, node) - 8f) : s);
+            if (spawnSlot > 0)
+            {
+                // online: cada jugador en su hueco (en fila por el tramo; si no cabe, en un tramo vecino)
+                float want = s + (node == e.b ? -1f : 1f) * spawnSlot * 9f;
+                if (want < 4f || want > e.length - 4f)
+                {
+                    int alt = -1;
+                    int k = 0;
+                    foreach (int ej in g.adj[e.a]) if (ej != ei && g.edges[ej].length > 30f) { if (k++ == spawnSlot % 3) { alt = ej; break; } }
+                    if (alt < 0) foreach (int ej in g.adj[e.b]) if (ej != ei && g.edges[ej].length > 30f) { alt = ej; break; }
+                    if (alt >= 0) { ei = alt; e = g.edges[ei]; want = Mathf.Clamp(e.length * 0.5f + (spawnSlot - 4) * 4f, 6f, e.length - 6f); }
+                    else want = Mathf.Clamp(want, 4f, e.length - 4f);
+                }
+                s = want;
+            }
             PlaceOn(ei, s, e.Allows(true));
         }
 
@@ -126,8 +169,8 @@ namespace HernaniRacing
         {
             if (pending != null) { var pa = pending; pending = null; pa(); }
             if (!Active || car == null) return;
-            if (GameInput.PausePressed) { paused = !paused; Time.timeScale = paused ? 0f : 1f; }
-            if (paused) return;
+            if (GameInput.PausePressed) { paused = !paused; if (!online) Time.timeScale = paused ? 0f : 1f; }
+            if (paused && !online) return;
             if (GameInput.MapPressed) showMap = !showMap;
             if (GameInput.MapZoomPressed) mapZoom = !mapZoom;
             if (GameInput.ResetPressed) ResetCar();
@@ -283,6 +326,9 @@ namespace HernaniRacing
                     foreach (var tc in traffic.cars) if (tc != null) map.Marker(tc.transform.position, tc.transform.forward, new Color(0.85f, 0.85f, 0.9f), false, mapZoom ? 7 : 4);
                 if (world.signals != null)
                     foreach (var j in world.signals.Junctions) map.Marker(g.nodes[j.node], Vector3.forward, new Color(1f, 0.6f, 0.1f), false, 6);
+                if (sync != null)
+                    foreach (var nc in sync.cars.Values)
+                        if (nc.Remote && !nc.gone && nc.car != null) map.Marker(nc.car.transform.position, nc.car.transform.forward, nc.color, false, mapZoom ? 14 : 11);
                 map.Marker(p, car.transform.forward, settings.paint, true, mapZoom ? 24 : 18);
                 GUI.Label(new Rect(mr.x, mr.yMax + 4, ms, 22), (mapZoom ? "Zoom 200 m" : "700 m") + " · N zoom · M ocultar", small);
             }
@@ -308,11 +354,20 @@ namespace HernaniRacing
 
             if (paused)
             {
-                Rect r = new Rect(W / 2 - 200, H / 2 - 120, 400, 240);
+                Rect r = new Rect(W / 2 - 200, H / 2 - 120, 400, online ? 290 : 240);
                 GUI.Box(r, GUIContent.none, box);
                 GUI.Label(new Rect(r.x, r.y + 20, r.width, 50), "PAUSA", new GUIStyle(mid) { fontSize = 36 });
+                if (online)
+                {
+                    if (RaceManager.Button(new Rect(r.x + 60, r.y + 90, 280, 50), "Continuar")) paused = false;
+                    if (RaceManager.Button(new Rect(r.x + 60, r.y + 150, 280, 50), "Salir a la sala")) { paused = false; pending = net.LeaveGame; }
+                    if (net.IsLeader && RaceManager.Button(new Rect(r.x + 60, r.y + 210, 280, 50), "Terminar para todos")) { paused = false; pending = net.Core.EndGame; }
+                }
+                else
+                {
                 if (RaceManager.Button(new Rect(r.x + 60, r.y + 90, 280, 50), "Continuar")) { paused = false; Time.timeScale = 1f; }
                 if (RaceManager.Button(new Rect(r.x + 60, r.y + 150, 280, 50), "Volver al menú")) { paused = false; pending = game.ShowSelector; }
+                }
             }
             GUI.matrix = Matrix4x4.identity;
         }

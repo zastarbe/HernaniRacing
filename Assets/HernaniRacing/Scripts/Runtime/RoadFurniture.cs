@@ -673,7 +673,7 @@ namespace HernaniRacing
 
         static LightState Phase(Junction j, int grp)
         {
-            float t = Mathf.Repeat(Time.time + j.offset + (grp == 1 ? Green + Amber + AllRed : 0f), Cycle);
+            float t = Mathf.Repeat(NetClock.Time + j.offset + (grp == 1 ? Green + Amber + AllRed : 0f), Cycle);
             if (t < Green) return LightState.Green;
             if (t < Green + Amber) return LightState.Amber;
             return LightState.Red;

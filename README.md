@@ -11,6 +11,19 @@ laterales quedan abiertas y la calzada va pegada al terreno real.
 También hay un modo **Paseo libre**: conduces por todo Hernani sin carrera, con tráfico y peatones que respetan
 las señales.
 
+## Novedades (versión 6): multijugador online con servidor propio
+* **Hasta 8 jugadores por sala**, cada uno desde su casa y su PC, conectados a **tu propio servidor Ubuntu**.
+* **Carreras online** (con o sin coches de la IA, hasta 10 coches en total) y **paseo libre compartido** por todo el mapa.
+* **Tráfico y peatones online**: los coches y peatones que ve un jugador los ven también los demás (cada PC mueve los de su
+  alrededor y los envía al resto). Los semáforos van sincronizados con el reloj del servidor.
+* **Salas con código de 4 letras**. El **líder** (quien crea la sala) elige el circuito, las vueltas, la IA y el tráfico; cada
+  jugador elige su coche y su color. Si el líder se va, otro jugador pasa a ser líder y se queda con los coches de la IA.
+* Al paseo libre se puede **entrar a mitad de partida**. No hay chat: sólo se comparten el nombre, el coche y la posición.
+* Servidor ligero en **.NET 8** (`Server/`), con instalador para Ubuntu que lo deja como servicio. Se ha probado con 8 jugadores simulados:
+  ningún paquete perdido, unos 80 KB/s de bajada por jugador y menos del 5 % de una CPU.
+
+![Multijugador](Docs/multijugador.png)
+
 ## Novedades (versión 5): todo el término de Hernani hasta Ugaldetxo
 * **Área de 10,2 × 7,2 km** (antes 3 × 3 km): todo el término municipal de Hernani desde el límite norte (Antziola, Florida,
   Akarregi) hasta **Ugaldetxo** al sur, con unos 300 m más de valle para que la GI‑3410 no termine de golpe. No llega más al sur.
@@ -224,6 +237,14 @@ Assets/HernaniRacing/
     RaceManager.cs          Salida, vueltas, posiciones, HUD, pausa y resultados
     GameInput.cs            Teclado y mando (Input Manager clásico o nuevo Input System)
     Mat.cs, MeshBuilder.cs  Materiales (Built-in y URP) y generación de mallas
+  Scripts/Net/
+    Shared/NetProtocol.cs   Protocolo de red (compartido con el servidor): mensajes, sala, estados de coche/tráfico/peatón
+    Shared/NetClientCore.cs Cliente de red sin Unity: conexión, salas, reloj común, envío/recepción
+    NetSession.cs           Conexión dentro del juego, perfil (nombre, coche, color) y arranque de partidas online
+    NetLobbyUI.cs           Panel «JUGAR ONLINE»: conectar, salas, jugadores
+    NetWorldSync.cs         Sincroniza coches, tráfico y peatones durante la partida
+    NetProxies.cs           Coches, tráfico y peatones remotos (interpolación)
+  Plugins/LiteNetLib/       Librería de red UDP (MIT)
   Scripts/Editor/
     HernaniRacingMenu.cs    Menú «Hernani Racing»
 DataPipeline/
@@ -232,6 +253,10 @@ DataPipeline/
   build_cars.py             Conversión de los GLB CC0 de Kenney al formato JSON del juego
   preview_map.py            Mapa de control
   requirements.txt
+Server/
+  install.sh                Instalador del servidor para Ubuntu (systemd)
+  server.example.json       Ejemplo de configuración
+  HernaniServer/            Servidor multijugador (.NET 8, consola)
 ```
 
 Todo se genera en tiempo de ejecución (mallas, materiales, texturas de señales y sonido). Los coches se leen de JSON, porque Unity no
@@ -239,7 +264,106 @@ importa GLB sin paquetes extra. No hace falta instalar ningún paquete adicional
 
 ---
 
-## 5. Licencias y atribución
+## 5. Multijugador online (servidor propio)
+
+### 5.1 Qué hace falta
+* Un **servidor Ubuntu** (20.04, 22.04 o 24.04, x64 o ARM) con **IP pública**. Sobra con el más pequeño: 1 CPU y 1 GB de RAM.
+* Que el **puerto 7777 UDP** esté abierto hacia internet.
+* Que todos los jugadores tengan **la misma versión del juego**. Con otra versión el servidor no deja entrar en la sala de los demás.
+
+### 5.2 Instalar el servidor (una sola vez, unos 3 minutos)
+Entra por SSH en el servidor y ejecuta:
+```
+sudo apt-get update && sudo apt-get install -y git
+git clone https://github.com/zastarbe/HernaniRacing.git
+cd HernaniRacing/Server
+sudo ./install.sh
+```
+El script:
+1. instala **.NET 8** si no está;
+2. compila el servidor y lo copia en `/opt/hernani-server`;
+3. crea el usuario sin privilegios `hernani` y la configuración `/etc/hernani-server/server.json` con una **contraseña aleatoria**;
+4. lo instala como **servicio `hernani-server`**, que arranca solo al encender la máquina y se reinicia si falla;
+5. abre el puerto en **ufw** si ufw está activo.
+
+Al terminar muestra **la IP, el puerto y la contraseña**. Apúntalos: son lo que tendrán que escribir los chavales.
+
+> **Cortafuegos del proveedor.** Si el servidor está en OVH, Hetzner, AWS, Google Cloud, Oracle, Azure, etc., abre también
+> **7777 / UDP** en el panel web del proveedor (Security group, Firewall o Network rules). Es el fallo más habitual.
+> Si el servidor está en casa, redirige en el router el puerto 7777 UDP hacia la IP local del servidor.
+
+**Actualizar** a una versión nueva: `cd HernaniRacing && git pull && cd Server && sudo ./install.sh` (se conserva la configuración).
+
+### 5.3 Configuración (`/etc/hernani-server/server.json`)
+```
+{
+  "port": 7777,
+  "password": "la-que-quieras",
+  "serverName": "Servidor Hernani Racing",
+  "motd": "¡Bienvenidos! Conducid con cuidado por Hernani.",
+  "maxPlayers": 64,
+  "maxRooms": 16
+}
+```
+Después de cambiarla: `sudo systemctl restart hernani-server`. Hay un ejemplo en `Server/server.example.json`.
+
+Comandos útiles:
+```
+sudo systemctl status hernani-server     # ¿está en marcha?
+sudo journalctl -u hernani-server -f     # ver quién entra y sale, salas, carreras...
+sudo systemctl restart hernani-server    # reiniciar
+sudo systemctl disable --now hernani-server   # pararlo y que no arranque más
+```
+
+### 5.4 El juego para los amigos (ejecutable de Windows)
+1. En Unity: **File → Build Settings → Windows, Mac, Linux → Target Platform: Windows → Build**, y elige una carpeta vacía.
+2. Comprime esa carpeta en un ZIP y pásala a los amigos (Drive, WeTransfer, un pendrive...). No hace falta instalar nada:
+   se descomprime y se abre `Hernani Racing.exe` (el nombre depende del *Product Name* del proyecto).
+3. La primera vez Windows puede preguntar por el cortafuegos: pulsa **Permitir acceso**.
+
+Cada vez que cambies el juego hay que repartir el ejecutable nuevo a todos: si las versiones no coinciden, no os deja entrar en la misma sala.
+
+### 5.5 Cómo se juega online
+1. En el selector de circuito, a la derecha, pulsa **JUGAR ONLINE**.
+2. Escribe la **IP (o dominio) del servidor**, el **puerto** (7777), la **contraseña** y **tu nombre**, y pulsa **CONECTAR**.
+   El juego lo recuerda para la próxima vez.
+3. Uno pulsa **Crear** sala y les dice a los demás el **código de 4 letras** (por ejemplo `HXLH`). Los demás lo escriben y pulsan
+   **Entrar**, o eligen la sala en la lista.
+4. Cada uno elige a la izquierda su **coche** y su **color**.
+5. El **líder** elige el circuito (los 4 cruces o un circuito predefinido), las vueltas, los rivales de la IA y el tráfico, y pulsa
+   **¡CARRERA ONLINE!** o **PASEO LIBRE ONLINE**. Los demás ven sus cambios en directo.
+6. En carrera hay una cuenta atrás común. Al terminar, el líder pulsa **Volver a la sala** para preparar la siguiente.
+7. **Esc** abre el menú: *Continuar*, *Salir a la sala* y, para el líder, *Terminar para todos*. En el paseo libre se puede salir y volver a
+   entrar (**ENTRAR AL PASEO**) mientras sigue en marcha.
+
+Notas:
+* Online el juego **no se pausa** con Esc: los demás siguen jugando.
+* Los coches de los demás se ven con su nombre encima y en el minimapa (tecla **M**).
+* Si alguien se desconecta en plena carrera, aparece como *abandona* y su coche desaparece.
+* Para probarlo en un solo PC puedes abrir dos copias del ejecutable y conectarte con dos nombres distintos.
+
+### 5.6 Si no conecta
+| Mensaje | Causa probable |
+|---|---|
+| *El servidor no responde. ¿Está encendido y con el puerto UDP abierto?* | Puerto 7777 UDP cerrado (ufw, panel del proveedor o router), IP mal escrita o servicio parado |
+| *Contraseña del servidor incorrecta.* | Mira `password` en `/etc/hernani-server/server.json` |
+| *Tu juego es más antiguo que el servidor* / *El servidor es más antiguo que tu juego* | Actualiza el juego o el servidor (`git pull` + `sudo ./install.sh`) |
+| *Tu juego tiene otra versión de los datos de Hernani* | Alguien tiene un ejecutable de otra versión: repartid el mismo |
+| *La sala está llena (máximo 8).* | Ya hay 8 jugadores en esa sala |
+
+### 5.7 Cómo funciona por dentro
+* Red **UDP** con **LiteNetLib** (MIT), incluida como código fuente en `Assets/HernaniRacing/Plugins/LiteNetLib`. Funciona igual en PC, Android e iOS,
+  así que sirve para la futura versión móvil.
+* El servidor (`Server/HernaniServer`, .NET 8, sin Unity) gestiona salas, líder, reloj común y la hora de salida, y **reenvía** las posiciones.
+  No simula física, por eso consume tan poco.
+* Cada PC simula su propio coche con la física completa y envía su estado 20 veces por segundo. Los coches de los demás se
+  **interpolan** unos 100 ms en el pasado y empujan de verdad al chocar. Los coches de la IA los mueve el PC del líder.
+* Tráfico y peatones: cada PC crea y mueve los que tiene cerca y los envía (8 y 5 veces por segundo). Los de otros jugadores se ven hasta
+  650 m. Los semáforos usan el reloj del servidor, así que todos ven el mismo color.
+
+---
+
+## 6. Licencias y atribución
 
 * **b5m** – © Diputación Foral de Gipuzkoa, <https://b5m.gipuzkoa.eus>. Datos abiertos, licencia **CC BY 4.0**.
 * **geoEuskadi** – © Gobierno Vasco / Eusko Jaurlaritza, <https://www.geo.euskadi.eus>. Datos abiertos, licencia **CC BY 4.0**.
@@ -248,6 +372,7 @@ importa GLB sin paquetes extra. No hace falta instalar ningún paquete adicional
   Se usa para los sentidos de circulación, carriles, rotondas, semáforos, señales STOP / ceda y pasos de cebra.
   Los datos derivados (`roads.json`) quedan bajo ODbL.
 * **Coches** – *Car Kit* y *Racing Kit* de **Kenney** (<https://kenney.nl>), licencia **CC0 1.0** (dominio público).
+* **LiteNetLib** 1.2.0 – © Ruslan Pyrch, licencia **MIT** (`Plugins/LiteNetLib/LICENSE.txt`, <https://github.com/RevenantX/LiteNetLib>).
 
 Los datos incluidos en este paquete se generaron con el **MDT05 del IGN** porque el servicio de geoEuskadi no
 estaba accesible en ese momento (consulta `meta.json → dtmSource`). Al regenerarlos en tu equipo, el pipeline
@@ -267,7 +392,7 @@ El proyecto ya trae `.gitignore` (de Unity) y `.gitattributes`, así que solo se
 cd HernaniRacing
 git init -b main
 git add -A
-git commit -m "Hernani Racing v5"
+git commit -m "Hernani Racing v6"
 git remote add origin https://github.com/TU_USUARIO/HernaniRacing.git
 git push -u origin main
 ```
@@ -275,4 +400,4 @@ git push -u origin main
 
 Unity regenera solo `Library/`, `Temp/`, `Logs/` y `UserSettings/`; no se suben.
 El fichero más grande (`heightmap.bytes`, 15 MB) está muy por debajo del límite de GitHub (100 MB): no hace falta Git LFS.
-Datos: © b5m Gipuzkoa, © IGN (MDT05), © OpenStreetMap contributors (ODbL); coches Kenney (CC0).
+Datos: © b5m Gipuzkoa, © IGN (MDT05), © OpenStreetMap contributors (ODbL); coches Kenney (CC0); red LiteNetLib (MIT).

@@ -1,0 +1,9 @@
+{
+  "port": 7777,
+  "password": "cambia-esta-contraseña",
+  "serverName": "Servidor Hernani Racing",
+  "motd": "¡Bienvenidos! Conducid con cuidado por Hernani.",
+  "maxPlayers": 64,
+  "maxRooms": 16,
+  "logRelay": false
+}
