@@ -241,6 +241,20 @@ namespace HernaniRacing
         TrafficSystem sys;
         int crossEdge = -1; float crossS; byte state;
         bool markedBusy;
+        /// <summary>Lo he atropellado yo: en mi pantalla sale despedido y se queda tumbado (sólo aquí).</summary>
+        public bool KnockedDown { get; private set; }
+        float knockT; Vector3 knockVel, knockPos; Quaternion knockRot;
+
+        public void KnockDown(Vector3 carVel)
+        {
+            if (KnockedDown) return;
+            KnockedDown = true; knockT = 0f;
+            Vector3 h = carVel; h.y = 0;
+            if (h.magnitude > 9f) h = h.normalized * 9f;
+            knockVel = h * 0.55f + Vector3.up * Mathf.Clamp(h.magnitude * 0.35f, 1.5f, 3.5f);
+            knockPos = transform.position;
+            knockRot = Quaternion.LookRotation(Vector3.up, h.sqrMagnitude > 0.01f ? -h.normalized : -transform.forward);
+        }
 
         public static PedProxy Create(byte owner, PedState st, Transform parent, TrafficSystem sys)
         {
@@ -287,6 +301,20 @@ namespace HernaniRacing
         void Update()
         {
             var s = NetSession.I;
+            if (KnockedDown)
+            {
+                float dt = Time.deltaTime;
+                knockT += dt;
+                knockVel.y -= 9.8f * dt;
+                knockPos += knockVel * dt;
+                float gy = sys != null && sys.world != null ? sys.world.SurfaceHeight(knockPos, knockPos.y + 1f) + 0.12f : knockPos.y;
+                if (knockPos.y < gy) { knockPos.y = gy; knockVel = Vector3.zero; }
+                transform.position = knockPos;
+                transform.rotation = Quaternion.Slerp(transform.rotation, knockRot, Mathf.Clamp01(dt * 10f));
+                // pasado un rato desaparece de mi pantalla (en el PC de su dueño sigue su camino)
+                if (knockT > 3.2f) { Release(); gameObject.SetActive(false); }
+                return;
+            }
             if (s == null || snaps.Count == 0) return;
             if (state == 1 && crossEdge >= 0 && sys != null) sys.SetCrossingWaiting(crossEdge, crossS);
             Vector3 p, v; Quaternion q;

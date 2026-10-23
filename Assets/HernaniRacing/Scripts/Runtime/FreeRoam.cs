@@ -357,6 +357,7 @@ namespace HernaniRacing
             }
             GUI.Label(new Rect(20, H - 34, 1400, 26), "W/S acelerar/frenar · A/D girar · Espacio freno de mano · R recolocar · C cámara · B mirar atrás · N zoom mapa · M mapa · Esc menú", small);
 
+            if (car != null) PenaltyHud.Draw(W, H, car);
             if (paused)
             {
                 Rect r = new Rect(W / 2 - 200, H / 2 - 120, 400, online ? 290 : 240);

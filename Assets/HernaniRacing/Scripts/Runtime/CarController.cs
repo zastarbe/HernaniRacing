@@ -43,6 +43,19 @@ namespace HernaniRacing
         public float throttle, brake, steer;
         public bool handbrake;
         public bool frozen;
+        /// <summary>Sanción (atropello): segundos que quedan parado. Primero frena hasta pararse y luego cuenta.</summary>
+        public float PenaltyLeft { get; private set; }
+        public bool PenaltyCounting { get; private set; }
+        float penaltyBrakeT;
+        public void Penalize(float secs)
+        {
+            if (PenaltyLeft > 0f) return;
+            PenaltyLeft = secs; PenaltyCounting = false; penaltyBrakeT = 0f;
+        }
+        public void ClearPenalty() { PenaltyLeft = 0f; PenaltyCounting = false; }
+        /// <summary>Medio ancho / medio largo de la carrocería (para esquivar).</summary>
+        public float HalfWidth { get { return model != null && model.boundsMax != null && model.boundsMax.Length > 0 ? Mathf.Max(0.6f, (model.boundsMax[0] - model.boundsMin[0]) * 0.5f) : 0.95f; } }
+        public float HalfLength { get { return model != null && model.boundsMax != null && model.boundsMax.Length > 2 ? Mathf.Max(1.2f, (model.boundsMax[2] - model.boundsMin[2]) * 0.5f) : 2.1f; } }
 
         [Header("Motor")]
         public float maxSpeed = 44f;          // m/s (~160 km/h)
@@ -151,15 +164,25 @@ namespace HernaniRacing
             ForwardSpeed = Vector3.Dot(vel, transform.forward);
             float speedRatio = Mathf.Clamp01(Mathf.Abs(ForwardSpeed) / maxSpeed);
 
-            float thr = frozen ? 0 : Mathf.Clamp(throttle, -1, 1);
-            float brk = frozen ? 1 : Mathf.Clamp01(brake);
-            bool hb = frozen || handbrake;
-            SmoothedSteer = Mathf.MoveTowards(SmoothedSteer, frozen ? 0 : Mathf.Clamp(steer, -1, 1), dt * 4.5f);
+            if (PenaltyLeft > 0f)
+            {
+                if (!PenaltyCounting)
+                {
+                    penaltyBrakeT += dt;
+                    if (vel.magnitude < 1f || penaltyBrakeT > 3.5f) PenaltyCounting = true;
+                }
+                else if ((PenaltyLeft -= dt) <= 0f) { PenaltyLeft = 0f; PenaltyCounting = false; }
+            }
+            bool hold = frozen || PenaltyLeft > 0f;
+            float thr = hold ? 0 : Mathf.Clamp(throttle, -1, 1);
+            float brk = hold ? 1 : Mathf.Clamp01(brake);
+            bool hb = hold || handbrake;
+            SmoothedSteer = Mathf.MoveTowards(SmoothedSteer, hold ? 0 : Mathf.Clamp(steer, -1, 1), dt * 4.5f);
             float steerAngle = SmoothedSteer * Mathf.Lerp(maxSteerLow, maxSteerHigh, speedRatio);
 
             // marcha atrás: freno pulsado y casi parado
             bool reversing = false;
-            if (brk > 0.1f && thr <= 0.05f && ForwardSpeed < 1.5f && !frozen)
+            if (brk > 0.1f && thr <= 0.05f && ForwardSpeed < 1.5f && !hold)
             {
                 reversing = true;
             }
@@ -224,7 +247,7 @@ namespace HernaniRacing
                 if (hb && !front) fLong -= Mathf.Sign(vLong) * Mathf.Min(Mathf.Abs(vLong) * 600f, brakeForce * 0.3f);
                 // resistencia a la rodadura
                 fLong -= vLong * 18f;
-                if (frozen) fLong = -vLong * Body.mass * 0.25f / dt * 0.5f;
+                if (hold) fLong = -vLong * Body.mass * 0.25f / dt * 0.5f;
 
                 Vector2 f = new Vector2(fLat, fLong);
                 if (f.magnitude > maxF)

@@ -35,10 +35,22 @@ namespace HernaniRacing.EditorTools
         public static void IncludeShaders()
         {
             // Los materiales se crean en código, así que los shaders deben ir siempre en el build.
+            // (también los del terreno: se crea en tiempo de ejecución y sin ellos el suelo sale invisible en el .exe)
             var names = new[]
             {
                 "Standard", "Unlit/Color", "Universal Render Pipeline/Lit", "Universal Render Pipeline/Unlit",
-                "Universal Render Pipeline/Simple Lit", "Universal Render Pipeline/Terrain/Lit"
+                "Universal Render Pipeline/Simple Lit", "Universal Render Pipeline/Terrain/Lit",
+                "Hidden/Universal Render Pipeline/Terrain/Lit (Add Pass)",
+                "Hidden/Universal Render Pipeline/Terrain/Lit (Base Pass)",
+                "Hidden/Universal Render Pipeline/Terrain/Lit (Basemap Gen)",
+                "Nature/Terrain/Standard", "Nature/Terrain/Diffuse",
+                "Hidden/TerrainEngine/Splatmap/Standard-AddPass", "Hidden/TerrainEngine/Splatmap/Standard-Base",
+                "Hidden/TerrainEngine/Splatmap/Standard-BaseGen",
+                "Hidden/TerrainEngine/Splatmap/Diffuse-AddPass", "Hidden/TerrainEngine/Splatmap/Diffuse-Base",
+                "Hidden/TerrainEngine/Splatmap/Diffuse-BaseGen",
+                "Hidden/TerrainEngine/CrossBlendNeighbors", "Hidden/TerrainEngine/HeightBlitCopy",
+                "Hidden/TerrainEngine/GenerateNormalmap", "Hidden/TerrainEngine/TerrainLayerUtils",
+                "Hidden/TerrainEngine/PaintHeight", "Hidden/TerrainEngine/BrushPreview"
             };
             var assets = AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/GraphicsSettings.asset");
             if (assets == null || assets.Length == 0) { Debug.LogWarning("No se encontró ProjectSettings/GraphicsSettings.asset"); return; }
@@ -58,8 +70,11 @@ namespace HernaniRacing.EditorTools
                 arr.GetArrayElementAtIndex(arr.arraySize - 1).objectReferenceValue = sh;
                 added++;
             }
-            so.ApplyModifiedProperties();
-            AssetDatabase.SaveAssets();
+            if (added > 0)
+            {
+                so.ApplyModifiedProperties();
+                AssetDatabase.SaveAssets();
+            }
             Debug.Log("[Hernani Racing] Shaders añadidos a 'Always Included': " + added);
         }
 
@@ -112,6 +127,22 @@ namespace HernaniRacing.EditorTools
         public static void OpenData()
         {
             EditorUtility.RevealInFinder(Path.Combine(Application.dataPath, "HernaniRacing", "Resources", "HernaniData", "meta.json"));
+        }
+    }
+
+    /// <summary>
+    /// Antes de cada build (exe, WebGL, Android...) mete los shaders necesarios en "Always Included Shaders":
+    /// así nunca falta el suelo aunque no se haya usado el menú 2.
+    /// </summary>
+    public class HernaniRacingBuildPrep : UnityEditor.Build.IPreprocessBuildWithReport
+    {
+        public int callbackOrder { get { return 0; } }
+
+        public void OnPreprocessBuild(UnityEditor.Build.Reporting.BuildReport report)
+        {
+            HernaniRacingMenu.IncludeShaders();
+            if (report.summary.platform == BuildTarget.WebGL)
+                Debug.Log("[Hernani Racing] WebGL: el modo online (UDP) no funciona en el navegador; carrera y paseo libre sí.");
         }
     }
 }

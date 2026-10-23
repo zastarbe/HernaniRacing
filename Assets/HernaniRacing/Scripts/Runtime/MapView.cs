@@ -286,6 +286,23 @@ namespace HernaniRacing
             var area = new Rect(center.x - DetailSize * 0.5f, center.y - DetailSize * 0.5f, DetailSize, DetailSize);
             workerArea = area;
             workerDone = false;
+#if UNITY_WEBGL && !UNITY_EDITOR
+            // WebGL no tiene hilos: se dibuja aquí mismo (un pequeño tirón al cambiar de recorte)
+            try { workerPx = RasterDetail(area); }
+            catch (System.Exception) { workerPx = new Color32[(int)(DetailSize / DetailMPerPx) * (int)(DetailSize / DetailMPerPx)]; }
+            workerDone = true;
+            worker = null;
+            {
+                int n = Mathf.RoundToInt(DetailSize / DetailMPerPx);
+                if (detailTex == null)
+                    detailTex = new Texture2D(n, n, TextureFormat.RGBA32, true) { filterMode = FilterMode.Trilinear, wrapMode = TextureWrapMode.Clamp, name = "HR_map_detail" };
+                detailTex.SetPixels32(workerPx);
+                detailTex.Apply(true);
+                detailArea = workerArea;
+                workerPx = null;
+            }
+            return;
+#else
             worker = new System.Threading.Thread(() =>
             {
                 try { workerPx = RasterDetail(area); }
@@ -293,6 +310,7 @@ namespace HernaniRacing
                 workerDone = true;
             }) { IsBackground = true, Name = "HR minimapa" };
             worker.Start();
+#endif
         }
 
         /// <summary>Copia los datos del plano en arrays simples (el hilo de dibujo no toca objetos de Unity).</summary>

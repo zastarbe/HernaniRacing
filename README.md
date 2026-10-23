@@ -11,6 +11,28 @@ laterales quedan abiertas y la calzada va pegada al terreno real.
 También hay un modo **Paseo libre**: conduces por todo Hernani sin carrera, con tráfico y peatones que respetan
 las señales.
 
+## Novedades (versión 9): llegada justa, adelantamientos con cabeza y builds arreglados
+* **Clasificación fijada en la meta.** El puesto y el tiempo de cada coche son los del momento exacto en que cruza la línea
+  (interpolado dentro del fotograma). Los que ya han llegado van siempre delante, ordenados por su tiempo: ningún rival puede
+  «adelantarte» en la tabla después de que hayas terminado. (Antes, un error de redondeo podía cambiar el orden de los que ya habían llegado.)
+* **Vuelta de deceleración.** Al cruzar la meta cada coche (también el tuyo, con piloto automático) frena **poco a poco** en unos
+  7 segundos y se aparta al lado derecho hasta pararse. Los coches que ya han terminado **no chocan** con los demás de la carrera.
+  Los rivales que van por detrás siguen corriendo hasta cruzar la meta con su tiempo real
+  (sólo si tardan más de 2 min y medio se les da un tiempo estimado, marcado con «≈»).
+* **IA más prudente.** Cada rival mira qué hay en su calzada (los demás coches de la carrera, el tráfico en su sentido **y el que
+  viene de frente**, y los peatones que cruzan) y elige el hueco más libre: adelanta sólo si cabe, no se cruza delante de un coche
+  que lleva al lado y, si no hay hueco, se queda detrás guardando la distancia.
+* **Atropellos: 2 segundos parado.** Si atropellas a un peatón, sale despedido, se cae (y luego se levanta) y tu coche frena hasta
+  pararse y se queda quieto **2 segundos**, con la cuenta atrás en pantalla **2,000 → 0,000**. Vale en carrera (también para la IA)
+  y en paseo libre.
+* **Build de Windows (.exe): ya se ve el suelo.** El terreno se crea por código y Unity quitaba sus shaders del build. Ahora el
+  terreno siempre lleva su material y, **antes de cada build**, se añaden solos los shaders del terreno a *Always Included Shaders*
+  (no hace falta acordarse del menú 2).
+* **Build WebGL: los coches ya no caen al vacío.** Con *Strip Engine Code* Unity eliminaba el colisionador del terreno
+  (`TerrainCollider`), que sólo se crea en tiempo de ejecución. Ahora se añade explícitamente y `Assets/HernaniRacing/link.xml` protege
+  los módulos de terreno y física. Además el minimapa detallado ya no usa hilos (WebGL no los tiene).
+  En el navegador **no hay modo online** (el navegador no permite UDP); carrera y paseo libre funcionan igual.
+
 ## Novedades (versión 8): coches nuevos, más tráfico y zoom del mapa
 * **Coches nuevos, mucho más detallados** (≈ 20 000–32 000 triángulos cada uno, con versión ligera automática para cuando se ven de lejos).
   Están hechos por código con las medidas reales aproximadas de cada modelo, sin marcas ni logotipos:
@@ -117,8 +139,15 @@ Requisitos: **Unity 2021.3 LTS o posterior** (probado contra la API de 2021.3; h
 > Si tu proyecto usa **solo** el nuevo Input System (lo habitual en Unity 6), el código lo detecta
 > automáticamente. Con *Active Input Handling = Both* se usa el Input Manager clásico.
 
-Para un ejecutable: *File → Build Settings → Build*. Si los materiales salen rosas en el build, ejecuta
-**Hernani Racing → 2. Incluir shaders para builds**.
+Para un ejecutable: *File → Build Settings → Build*. Antes de cada build se añaden solos los shaders que hacen
+falta (materiales y terreno); si aun así algo sale rosa o invisible, ejecuta **Hernani Racing → 2. Incluir shaders para builds**
+y vuelve a hacer el build.
+
+**Build WebGL (navegador):** *File → Build Settings → WebGL → Switch Platform → Build*. Copia también
+`Assets/HernaniRacing/link.xml` (va dentro de la carpeta `HernaniRacing`). Recomendado en *Player Settings → WebGL → Other
+Settings*: *Managed Stripping Level = Minimal*; si aun así cayeran los coches, desmarca *Strip Engine Code*. El mundo es
+grande: en *Publishing Settings* pon *Compression Format = Gzip* (o *Disabled* si tu servidor web no la sirve) y prueba
+con Chrome o Edge en un PC. El modo online no está disponible en el navegador.
 
 ---
 
@@ -197,8 +226,10 @@ opciones para repetir la carrera o elegir otro circuito.
   ayudas: se ha quitado el *rubber band*, que aceleraba a la IA cuando iba por detrás.
 * Los coches del tráfico son cinemáticos: no te empujan, pero sí chocas con ellos. Si quieres, apágalos en la pantalla del circuito o del paseo.
 * Las ruedas solo apoyan en el suelo, nunca sobre otro coche. Así nadie se «sube» encima de otro ni gana ventaja al chocar.
-* La IA respeta a los coches que lleva delante o al lado: cambia de carril para adelantar o levanta el pie,
-  en vez de empujar. En un contacto, los dos coches se empujan con la misma fuerza.
+* La IA respeta a los coches que lleva delante o al lado y al tráfico (también al que viene de frente): busca el hueco más
+  libre para adelantar o levanta el pie, en vez de empujar. En un contacto, los dos coches se empujan con la misma fuerza.
+* Atropellar a un peatón cuesta **2 segundos parado** (cuenta atrás 2,000 → 0,000), a ti y a la IA por igual.
+* Al cruzar la meta, tu puesto y tu tiempo quedan fijados; después todos frenan poco a poco y ya no chocan entre sí.
 
 ---
 
@@ -295,6 +326,7 @@ Assets/HernaniRacing/
     RaceManager.cs          Salida, vueltas, posiciones, HUD, pausa y resultados
     GameInput.cs            Teclado y mando (Input Manager clásico o nuevo Input System)
     Mat.cs, MeshBuilder.cs  Materiales (Built-in y URP) y generación de mallas
+    PenaltyHud.cs           Aviso de sanción por atropello (cuenta atrás 2,000 → 0,000)
   Scripts/Net/
     Shared/NetProtocol.cs   Protocolo de red (compartido con el servidor): mensajes, sala, estados de coche/tráfico/peatón
     Shared/NetClientCore.cs Cliente de red sin Unity: conexión, salas, reloj común, envío/recepción

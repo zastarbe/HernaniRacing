@@ -205,6 +205,7 @@ namespace HernaniRacing
                 float dMine = Flat(p.transform.position - pp);
                 if (NearestPlayer(p.transform.position, dMine) > 230f || dMine > 500f || p.WantsDespawn || !pedestriansOn) { p.Release(); Destroy(p.gameObject); peds.RemoveAt(i); }
             }
+            CheckPedestrianHits();
             UpdateDensity();
             if (Time.time < nextSpawn) return;
             nextSpawn = Time.time + (maxCars > 40 || maxPeds > 70 ? 0.12f : 0.25f);
@@ -217,6 +218,58 @@ namespace HernaniRacing
         }
 
         static float Flat(Vector3 v) { v.y = 0; return v.magnitude; }
+
+        /// <summary>Segundos que te deja parado atropellar a un peatón.</summary>
+        public const float PedestrianPenalty = 2f;
+        /// <summary>Aviso cuando un coche de este PC atropella a un peatón (ya sancionado).</summary>
+        public static event System.Action<CarController> PedestrianHit;
+
+        /// <summary>
+        /// Atropellos: si un coche que se conduce en este PC (jugador o rival IA en carrera) pasa por encima de un
+        /// peatón, el peatón sale despedido y se cae, y el coche queda parado 2 segundos.
+        /// </summary>
+        void CheckPedestrianHits()
+        {
+            if (peds.Count == 0 && remotePeds.Count == 0) return;
+            foreach (var car in drivers)
+            {
+                if (car == null || car.Body == null || !car.gameObject.activeInHierarchy || car.frozen || car.PenaltyLeft > 0f) continue;
+                Vector3 v = car.Body.Vel();
+                if (v.sqrMagnitude < 2.5f * 2.5f) continue;                  // a paso de peatón no cuenta
+                var pd = car.GetComponent<PlayerDriver>();
+                var ai = car.GetComponent<AIDriver>();
+                bool local = (pd != null && pd.enabled) || (ai != null && ai.enabled && !ai.coolDown);
+                if (!local) continue;
+                float hw = car.HalfWidth + 0.22f, hl = car.HalfLength + 0.22f;
+                Vector3 cp = car.transform.position;
+                float r2 = (hl + 1f) * (hl + 1f);
+                bool hit = false;
+                foreach (var p in peds)
+                {
+                    if (p == null || p.KnockedDown) continue;
+                    if (Hits(car, cp, p.transform.position, hw, hl, r2)) { p.KnockDown(v); hit = true; break; }
+                }
+                if (!hit)
+                    foreach (var p in remotePeds)
+                    {
+                        if (p == null || p.KnockedDown || !p.gameObject.activeSelf) continue;
+                        if (Hits(car, cp, p.transform.position, hw, hl, r2)) { p.KnockDown(v); hit = true; break; }
+                    }
+                if (hit)
+                {
+                    car.Penalize(PedestrianPenalty);
+                    if (PedestrianHit != null) PedestrianHit(car);
+                }
+            }
+        }
+
+        static bool Hits(CarController car, Vector3 cp, Vector3 q, float hw, float hl, float r2)
+        {
+            Vector3 d = q - cp;
+            if (d.x * d.x + d.z * d.z > r2) return false;
+            Vector3 l = car.transform.InverseTransformPoint(q + Vector3.up * 0.5f);
+            return Mathf.Abs(l.x) < hw && Mathf.Abs(l.z) < hl && l.y > -1.2f && l.y < 2.2f;
+        }
 
         /// <summary>Distancia al jugador más cercano (yo u otro jugador online).</summary>
         float NearestPlayer(Vector3 p, float dMine)
@@ -786,6 +839,10 @@ namespace HernaniRacing
         float hop;
         Transform legL, legR, armL, armR, body;
         public bool WantsDespawn { get; private set; }
+        /// <summary>Atropellado: sale despedido, se queda en el suelo un rato y luego se levanta.</summary>
+        public bool KnockedDown { get; private set; }
+        float knockT; Vector3 knockVel, knockPos; Quaternion knockRot, knockUp;
+        float dodgeMax = 3.5f;
         public ushort netId;       // online
         public int lookSeed;       // aspecto (ropa, piel, altura): lo reciben los demás jugadores
 
@@ -891,10 +948,60 @@ namespace HernaniRacing
             if (state == State.Cross && sys != null) sys.SetCrossingBusy(edge, crossS, -1);
         }
 
+        public void KnockDown(Vector3 carVel)
+        {
+            if (KnockedDown) return;
+            if (state == State.Cross)
+            {   // deja libre el paso de cebra y, cuando se levante, sigue por la acera más cercana
+                Release();
+                float x = side * (g.edges[edge].width * 0.5f + 1.0f) - side * Mathf.Min(crossT, crossWidth);
+                side = x >= 0 ? 1 : -1; s = crossS;
+            }
+            state = State.Walk;
+            KnockedDown = true; knockT = 0f;
+            Vector3 h = carVel; h.y = 0;
+            if (h.magnitude > 9f) h = h.normalized * 9f;
+            knockVel = h * 0.55f + Vector3.up * Mathf.Clamp(h.magnitude * 0.35f, 1.5f, 3.5f);
+            knockPos = transform.position;
+            Vector3 fall = h.sqrMagnitude > 0.01f ? h.normalized : transform.forward;
+            knockRot = Quaternion.LookRotation(Vector3.up, -fall);     // tumbado boca arriba en la dirección del golpe
+            knockUp = Quaternion.LookRotation(-fall);
+            dodge = Vector3.zero; dodgeVel = Vector3.zero; hop = 0f;
+        }
+
+        /// <summary>Vuelo + caída + un rato en el suelo + levantarse. Devuelve true mientras dura.</summary>
+        bool UpdateKnocked(float dt)
+        {
+            knockT += dt;
+            const float lie = 2.6f, rise = 0.6f;
+            knockVel.y -= 9.8f * dt;
+            knockPos += knockVel * dt;
+            float gy = world.SurfaceHeight(knockPos, knockPos.y + 1f) + 0.12f;
+            if (knockPos.y < gy)
+            {
+                knockPos.y = gy;
+                knockVel.y = 0f;
+                knockVel.x *= Mathf.Clamp01(1f - dt * 4f); knockVel.z *= Mathf.Clamp01(1f - dt * 4f);
+            }
+            transform.position = knockPos;
+            if (knockT < lie) transform.rotation = Quaternion.Slerp(transform.rotation, knockRot, Mathf.Clamp01(dt * 10f));
+            else transform.rotation = Quaternion.Slerp(knockRot, knockUp, Mathf.Clamp01((knockT - lie) / rise));
+            legL.localRotation = legR.localRotation = armL.localRotation = armR.localRotation = Quaternion.identity;
+            if (knockT < lie + rise) return true;
+            // de pie otra vez: vuelve andando a la acera (el desvío se recoge poco a poco)
+            KnockedDown = false;
+            Vector3 home = SidewalkPoint(edge, s, side);
+            dodge = knockPos - home; dodge.y = 0;
+            dodgeMax = Mathf.Max(3.5f, dodge.magnitude);
+            if (dodge.magnitude > 14f) WantsDespawn = true;
+            return false;
+        }
+
         void Update()
         {
             float dt = Time.deltaTime;
             if (dt <= 0) return;
+            if (KnockedDown && UpdateKnocked(dt)) return;
             var e = g.edges[edge];
             Vector3 pos = transform.position, dir = transform.forward;
             bool moving = true;
@@ -983,7 +1090,8 @@ namespace HernaniRacing
             dodge += dodgeVel * dt;
             dodgeVel = Vector3.Lerp(dodgeVel, Vector3.zero, dt * 4f);
             dodge = Vector3.Lerp(dodge, Vector3.zero, dt * 0.6f);
-            if (dodge.magnitude > 3.5f) dodge = dodge.normalized * 3.5f;
+            if (dodge.magnitude > dodgeMax) dodge = dodge.normalized * dodgeMax;
+            dodgeMax = Mathf.Max(3.5f, Mathf.Min(dodgeMax, dodge.magnitude));
             float jump = 0f;
             if (hop > 0f) { hop -= dt; jump = Mathf.Sin(Mathf.Clamp01(1f - hop / 0.45f) * Mathf.PI) * 0.35f; }
 

@@ -1,0 +1,7 @@
+<!-- Hernani Racing: el terreno y sus colisionadores se crean en código; que el stripping de IL2CPP
+     (WebGL, Android, iOS) no quite los módulos de física y terreno. -->
+<linker>
+  <assembly fullname="UnityEngine.TerrainModule" preserve="all"/>
+  <assembly fullname="UnityEngine.TerrainPhysicsModule" preserve="all"/>
+  <assembly fullname="UnityEngine.PhysicsModule" preserve="all"/>
+</linker>

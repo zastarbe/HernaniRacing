@@ -206,11 +206,24 @@ namespace HernaniRacing
             var tparent = new GameObject("Terreno MDT").transform;
             tparent.SetParent(w.root, false);
             var tileH = new float[tc + 1, tc + 1];
+            // material del terreno SIEMPRE explícito: el terreno se crea en código y, en un build, Unity no
+            // sabe que hacen falta sus shaders (si no están, el suelo sale invisible). El menú "2. Incluir
+            // shaders" (y el preproceso de build automático) los mete en "Always Included Shaders".
             Material tmat = null;
-            if (Mat.IsSRP)
+            bool terrainShader = true;
             {
-                var sh = Shader.Find("Universal Render Pipeline/Terrain/Lit");
-                if (sh != null) tmat = new Material(sh);
+                Shader sh = null;
+                if (Mat.IsSRP) sh = Shader.Find("Universal Render Pipeline/Terrain/Lit");
+                if (sh == null) sh = Shader.Find("Nature/Terrain/Standard");
+                if (sh == null) sh = Shader.Find("Nature/Terrain/Diffuse");
+                if (sh != null && sh.isSupported) tmat = new Material(sh);
+                else
+                {
+                    // último recurso: sin shader de terreno al menos se ve el suelo (verde liso)
+                    Debug.LogWarning("[Hernani Racing] No hay shader de terreno en el build: usa el menú Hernani Racing > 2. Incluir shaders para builds");
+                    tmat = Mat.Color(new Color(0.36f, 0.52f, 0.25f), 0.1f);
+                    terrainShader = false;
+                }
             }
             for (int tz = 0; tz < w.tilesZ; tz++)
                 for (int tx = 0; tx < w.tilesX; tx++)
@@ -268,9 +281,15 @@ namespace HernaniRacing
                     go.transform.SetParent(tparent, false);
                     go.transform.position = new Vector3(tx * w.tileSize, meta.heightMin, tz * w.tileSize);
                     var t = go.GetComponent<Terrain>();
+                    // colisionador explícito: en WebGL/IL2CPP con "Strip Engine Code" el módulo de física del
+                    // terreno se puede quitar si nada lo referencia y entonces los coches caen al vacío
+                    var tcol = go.GetComponent<TerrainCollider>();
+                    if (tcol == null) tcol = go.AddComponent<TerrainCollider>();
+                    tcol.terrainData = td;
+                    tcol.enabled = true;
                     t.heightmapPixelError = 1;   // el asfalto va pegado al terreno: mínimo error de LOD
                     t.basemapDistance = 1200;
-                    t.drawInstanced = true;
+                    t.drawInstanced = terrainShader;   // el dibujado instanciado necesita un shader de terreno
                     t.treeDistance = 0;
                     t.groupingID = 1;
                     t.allowAutoConnect = true;

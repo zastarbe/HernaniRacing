@@ -40,6 +40,8 @@ namespace HernaniRacing
         public bool finished;
         public float finishTime;
         public int finishOrder;
+        public bool estimated;       // no llegó a tiempo: tiempo estimado por su ritmo
+        public bool ghosted;         // ya no choca con los demás coches de la carrera (tras la meta)
         public float offTimer, wrongTimer, stuckTimer, flipTimer;
         public bool offTrack, wrongWay;
         public int position;
@@ -380,13 +382,84 @@ namespace HernaniRacing
 
             // posiciones
             // online: el orden de llegada sale del tiempo de meta (reloj común), igual en todos los PCs
-            var order = racers.OrderBy(r => r.gone ? 1 : 0).ThenByDescending(r => r.finished ? 1e9f - (online ? r.finishTime : r.finishOrder) : r.progress).ToList();
+            // (el puesto queda fijado al cruzar la meta: los que han llegado van siempre delante, ordenados por
+            //  su tiempo de llegada; nadie puede adelantarles en la clasificación después)
+            var order = new List<Racer>(racers);
+            order.Sort(CompareRacers);
             for (int i = 0; i < order.Count; i++) order[i].position = i + 1;
+            foreach (var r in racers) if (r.finished && !r.ghosted) Ghost(r);
 
             if (player != null && state == State.Racing && GameInput.ResetPressed) ResetRacer(player);
-            if (state == State.Finished && !online && Time.time - finishedAt > 45f)
-                foreach (var r in racers) if (!r.finished) r.car.frozen = true;
+            // los rivales siguen corriendo hasta cruzar la meta (su tiempo es el real); si alguno tarda
+            // muchísimo, se le da un tiempo estimado por su ritmo y se para poco a poco
+            if (state == State.Finished && Clock - finishedAt > EstimateAfter)
+                foreach (var r in racers)
+                    if (!r.finished && !r.remote && !r.gone && !r.isPlayer) EstimateFinish(r);
             if (online) CheckGone();
+        }
+
+        const float EstimateAfter = 150f;
+
+        int CompareRacers(Racer a, Racer b)
+        {
+            if (a == b) return 0;
+            if (a.gone != b.gone) return a.gone ? 1 : -1;
+            if (a.finished != b.finished) return a.finished ? -1 : 1;
+            int c;
+            if (a.finished)
+            {
+                if (a.estimated != b.estimated) return a.estimated ? 1 : -1;
+                c = a.finishTime.CompareTo(b.finishTime);
+                if (c == 0) c = a.finishOrder.CompareTo(b.finishOrder);
+            }
+            else c = b.progress.CompareTo(a.progress);
+            return c != 0 ? c : racers.IndexOf(a).CompareTo(racers.IndexOf(b));
+        }
+
+        /// <summary>Tras la meta el coche ya no choca con los demás de la carrera (así nadie se lo come al frenar).</summary>
+        void Ghost(Racer r)
+        {
+            r.ghosted = true;
+            if (r.car == null) return;
+            var mine = r.car.GetComponentsInChildren<Collider>();
+            foreach (var o in racers)
+            {
+                if (o == r || o.car == null) continue;
+                var theirs = o.car.GetComponentsInChildren<Collider>();
+                foreach (var a in mine) foreach (var b in theirs) if (a != null && b != null) Physics.IgnoreCollision(a, b, true);
+            }
+        }
+
+        /// <summary>Piloto automático de después de la meta: frena poco a poco y se aparta a la derecha.</summary>
+        void StartCoolDown(Racer r)
+        {
+            if (r.remote || r.car == null) return;
+            r.car.ClearPenalty();
+            if (r.isPlayer)
+            {
+                var pd = r.car.GetComponent<PlayerDriver>();
+                if (pd != null) pd.enabled = false;
+                var ai = r.car.GetComponent<AIDriver>();
+                if (ai == null) ai = r.car.gameObject.AddComponent<AIDriver>();
+                ai.car = r.car; ai.circuit = circuit; ai.skill = 0.85f; ai.lane = 0f;
+                var cars = new List<CarController>();
+                foreach (var o in racers) if (o.car != null && !o.gone) cars.Add(o.car);
+                ai.others = cars;
+                ai.ResetTracking();
+                ai.StartCoolDown(7f);
+                r.ai = ai;
+            }
+            else if (r.ai != null) r.ai.StartCoolDown(7f);
+        }
+
+        void EstimateFinish(Racer r)
+        {
+            float avg = raceTime > 1 ? Mathf.Max(r.progress, 1f) / raceTime : 10f;
+            float remaining = Mathf.Max(0f, settings.laps * circuit.length - r.progress);
+            r.finished = true; r.estimated = true;
+            r.finishTime = raceTime + remaining / Mathf.Max(avg, 1f);
+            r.finishOrder = ++finishCounter;
+            StartCoolDown(r);
         }
 
         void CheckGone()
@@ -465,18 +538,21 @@ namespace HernaniRacing
                     Flash(laps == settings.laps - 1 ? "¡ÚLTIMA VUELTA!  " + FormatTime(lt) : "Vuelta " + laps + "  " + FormatTime(lt), 2.5f);
                 if (r.lapsDone >= settings.laps)
                 {
+                    // tiempo exacto del cruce de la línea (interpolado dentro del fotograma)
+                    float over = r.progress - settings.laps * L;
+                    float back = ds > 0.01f ? Time.deltaTime * Mathf.Clamp01(over / ds) : 0f;
                     r.finished = true;
-                    r.finishTime = Clock - raceStart;
+                    r.finishTime = Clock - raceStart - back;
                     r.finishOrder = ++finishCounter;
+                    r.lapTimes[r.lapTimes.Count - 1] -= back;
+                    if (r.bestLap > r.lapTimes[r.lapTimes.Count - 1]) r.bestLap = r.lapTimes[r.lapTimes.Count - 1];
+                    Ghost(r);
+                    StartCoolDown(r);
                     if (r.isPlayer)
                     {
                         state = State.Finished;
                         finishedAt = Clock;
                         Flash("¡META!", 3f);
-                        // el jugador pasa a "piloto automático" lento
-                        var pd = car.GetComponent<PlayerDriver>();
-                        if (pd != null) pd.enabled = false;
-                        car.throttle = 0; car.brake = 0.4f;
                     }
                 }
             }
@@ -490,10 +566,14 @@ namespace HernaniRacing
             r.wrongTimer = wrong ? r.wrongTimer + Time.deltaTime : 0f;
             r.wrongWay = r.wrongTimer > 1.2f;
             bool blocked = r.ai != null && r.ai.Blocked;
-            r.stuckTimer = (!car.frozen && car.Speed < 1.2f && !blocked) ? r.stuckTimer + Time.deltaTime : 0f;
+            r.stuckTimer = (!car.frozen && car.PenaltyLeft <= 0f && car.Speed < 1.2f && !blocked) ? r.stuckTimer + Time.deltaTime : 0f;
             r.flipTimer = Vector3.Dot(car.transform.up, Vector3.up) < 0.3f ? r.flipTimer + Time.deltaTime : 0f;
 
-            if (r.finished && r.isPlayer) return;
+            if (r.finished)
+            {   // después de la meta sólo se recoloca si vuelca o se cae del mapa
+                if (r.flipTimer > 3f || p.y < -50f) ResetRacer(r);
+                return;
+            }
             if (r.isPlayer)
             {
                 // sin cuenta atrás por salirse: sólo se recoloca si vuelca o cae fuera del mapa (o pulsando R)
@@ -694,6 +774,7 @@ namespace HernaniRacing
                     GUI.Label(new Rect(0, H / 2 - 8, W, 34), "Vuelve a la pista por donde saliste · R para recolocar", hint);
                 }
             }
+            PenaltyHud.Draw(W, H, player.car);
             GUI.Label(new Rect(20, H - 34, 1500, 26), "W/S acelerar/frenar · A/D girar · Espacio freno de mano · R recolocar · C cámara · B mirar atrás · N zoom mapa · F flechas · Esc pausa", small);
 
             if (paused) PauseMenu(W, H);
@@ -734,7 +815,7 @@ namespace HernaniRacing
                 GUI.DrawTexture(new Rect(r.x + 40, y + 8, 16, 16), Tex.Solid(x.color));
                 GUI.Label(new Rect(r.x + 66, y, 220, 30), x.position + ". " + x.name, x.isPlayer ? mid : label);
                 string t;
-                if (x.finished) t = FormatTime(x.finishTime);
+                if (x.finished) t = (x.estimated ? "≈" : "") + FormatTime(x.finishTime) + (x.estimated ? " (estimado)" : "");
                 else if (x.gone) t = "abandona";
                 else
                 {
