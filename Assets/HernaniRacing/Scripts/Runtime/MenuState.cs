@@ -125,6 +125,13 @@ namespace HernaniRacing
             s.pedestrians = PlayerPrefs.GetInt("menu.peds", s.pedestrians ? 1 : 0) == 1;
             s.freeTraffic = PlayerPrefs.GetInt("menu.ftraffic", s.freeTraffic ? 1 : 0) == 1;
             s.freePedestrians = PlayerPrefs.GetInt("menu.fpeds", s.freePedestrians ? 1 : 0) == 1;
+            s.trafficLevel = Mathf.Clamp(PlayerPrefs.GetInt("menu.trafficLv", s.traffic ? 2 : 0), 0, 5);
+            s.pedLevel = Mathf.Clamp(PlayerPrefs.GetInt("menu.pedsLv", s.pedestrians ? 2 : 0), 0, 5);
+            s.freeTrafficLevel = Mathf.Clamp(PlayerPrefs.GetInt("menu.ftrafficLv", s.freeTraffic ? 2 : 0), 0, 5);
+            s.freePedLevel = Mathf.Clamp(PlayerPrefs.GetInt("menu.fpedsLv", s.freePedestrians ? 2 : 0), 0, 5);
+            s.realTimeTraffic = PlayerPrefs.GetInt("menu.realtime", 0) == 1;
+            s.traffic = s.trafficLevel > 0; s.pedestrians = s.pedLevel > 0;
+            s.freeTraffic = s.freeTrafficLevel > 0; s.freePedestrians = s.freePedLevel > 0;
             freeStart = PlayerPrefs.GetInt("menu.free", -1);
             if (freeStart >= world.graph.nodes.Length) freeStart = -1;
 
@@ -151,6 +158,11 @@ namespace HernaniRacing
             PlayerPrefs.SetInt("menu.peds", s.pedestrians ? 1 : 0);
             PlayerPrefs.SetInt("menu.ftraffic", s.freeTraffic ? 1 : 0);
             PlayerPrefs.SetInt("menu.fpeds", s.freePedestrians ? 1 : 0);
+            PlayerPrefs.SetInt("menu.trafficLv", s.trafficLevel);
+            PlayerPrefs.SetInt("menu.pedsLv", s.pedLevel);
+            PlayerPrefs.SetInt("menu.ftrafficLv", s.freeTrafficLevel);
+            PlayerPrefs.SetInt("menu.fpedsLv", s.freePedLevel);
+            PlayerPrefs.SetInt("menu.realtime", s.realTimeTraffic ? 1 : 0);
             PlayerPrefs.SetInt("menu.free", freeStart);
             PlayerPrefs.SetString("menu.sel", string.Join(",", sel.Select(n => n.ToString()).ToArray()));
             PlayerPrefs.SetString("menu.preset", presetName ?? "");

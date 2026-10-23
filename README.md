@@ -3,13 +3,42 @@
 Juego de carreras para **Unity** ambientado en **Hernani (Gipuzkoa)** con datos geográficos **reales**:
 la red viaria, los edificios, el relieve, el río Urumea y la toponimia proceden de **b5m** (Diputación Foral
 de Gipuzkoa) y de **geoEuskadi** (Gobierno Vasco). Los sentidos de circulación, semáforos, STOP, cedas y pasos de cebra
-vienen de **OpenStreetMap**. Los coches son modelos 3D libres (**Kenney Car Kit, CC0**) convertidos para Unity.
+vienen de **OpenStreetMap**. Los coches son modelos 3D **propios**, generados por código (dominio público, CC0) e inspirados en coches clásicos reales.
 
 El jugador **elige 4 cruces reales** del mapa: el juego une 1 → 2 → 3 → 4 → 1 por las calles más
 cortas, cierra el circuito y lanza una carrera de **varias vueltas** contra la IA. No hay vallas ni bordillos: las calles
 laterales quedan abiertas y la calzada va pegada al terreno real.
 También hay un modo **Paseo libre**: conduces por todo Hernani sin carrera, con tráfico y peatones que respetan
 las señales.
+
+## Novedades (versión 8): coches nuevos, más tráfico y zoom del mapa
+* **Coches nuevos, mucho más detallados** (≈ 20 000–32 000 triángulos cada uno, con versión ligera automática para cuando se ven de lejos).
+  Están hechos por código con las medidas reales aproximadas de cada modelo, sin marcas ni logotipos:
+
+  | En el juego | Inspirado en |
+  |---|---|
+  | Furgoneta hippie | Furgoneta T1 «Samba» de los 60 (bitono, 23 ventanas, baca y tabla de surf) |
+  | Utilitario clásico | «500» de los 60 (techo de lona) |
+  | Turismo GT | Compacto «GTI» de 2ª generación (faros dobles, filete rojo) |
+  | Berlina de rally | Impreza WRX de 1ª generación (azul, llantas doradas, alerón y toma de capó) |
+  | Todoterreno clásico | Land Rover «Serie IIA» (techo blanco, rueda en el capó, ventanas alpinas) |
+  | Superdeportivo | McLaren F1 de 1992 (toma de aire en el techo, motor central) |
+  | Fórmula 1 | Monoplaza actual genérico (halo, alerones, fondo plano) |
+
+  ![Coches de la versión 8](Docs/coches.png)
+
+  En el tráfico salen además **compactos y SUV urbanos** actuales (los más frecuentes), **taxis**, **patrullas de la Ertzaintza**,
+  **ambulancias** y **camiones de reparto**, cada uno con su frecuencia (casi nunca verás un superdeportivo).
+  Cada coche tiene su física: el «500» es ligero y lento, el Impreza agarra mucho, el superdeportivo es el más rápido después del F1.
+* **Cantidad de tráfico y peatones**: *No · Poco · Normal · Mucho · Muchísimo · A tope* (hasta 100 coches y 140 peatones alrededor).
+  Salen más coches en la autovía y las carreteras que en las calles. Online el máximo es de 60 coches por jugador.
+* **Tráfico según la hora real** (opcional): no hay datos de tráfico en tiempo real abiertos y gratuitos (Google Maps y Waze no los dan
+  sin contrato), así que el juego usa el **perfil real de la A-15 en Hernani** (aforos de la Diputación Foral de Gipuzkoa publicados en
+  Open Data Euskadi): el martes a las 8:00 hay hora punta y a las 4:00 de la madrugada casi nadie.
+* **Pantalla de circuito rediseñada**: dos paneles (a la izquierda el circuito y a la derecha la carrera, el tráfico y los botones).
+  Todo se lee sin barras de desplazamiento; si la ventana es pequeña, el panel se ajusta solo.
+* **Zoom del minimapa** con **N**: 5 km → 2 km → 1 km → 500 m → 200 m → 100 m (en carrera, además, el circuito entero).
+  En los zooms de 200 y 100 m el plano se dibuja con detalle (0,5 m por píxel).
 
 ## Novedades (versión 7): menús nuevos
 * **Pantalla de presentación**: de fondo, la cámara **sobrevuela Hernani a unos 300 m del suelo y a 300 km/h**, como en una película,
@@ -109,12 +138,13 @@ Para un ejecutable: *File → Build Settings → Build*. Si los materiales salen
 * **Retroceso** quita el último cruce; la ✕ de cada fila quita ese cruce. **Aleatorio (aquí)** inventa un circuito donde estás mirando.
 * **Ratón**: arrastrar para mover y rueda para zoom · **WASD / flechas** para desplazarse, **Q / E** para el zoom y **Mayús** para ir más rápido.
 * Avisos: te avisa si el trazado repite calle (ida y vuelta) o tiene un giro de 180º. Cambia el orden de los cruces para evitarlo.
-* **Tráfico y peatones** en la carrera: sí o no (por defecto, tráfico no y peatones sí).
+* Panel derecho: **vueltas**, **rivales IA**, **dificultad**, **cantidad de tráfico y de peatones** (por defecto, sin tráfico y peatones
+  normal) y la casilla **Según la hora real**.
 * **¡A CORRER!** empieza; **MENÚ PRINCIPAL** vuelve a la presentación.
 
 ### Pantalla de paseo libre
 * **Salida**: clic en un cruce del mapa, o en un barrio de la lista, o *Centro de Hernani*.
-* **Tráfico y peatones**: sí o no. Después, **¡A PASEAR!**
+* Panel derecho: **cantidad de tráfico y de peatones** y **Según la hora real**. Después, **¡A PASEAR!**
 
 ### Circuitos predefinidos
 | Circuito | Cruces | Vuelta |
@@ -138,7 +168,7 @@ Para un ejecutable: *File → Build Settings → Build*. Si los materiales salen
 | Cambiar cámara | C | X / □ |
 | Pausa | Esc / P | Start |
 | Minimapa grande | M | — |
-| Zoom del mapa en tu posición (~100 m) | N | Cruceta ↑ / Back |
+| Zoom del mapa (circuito, 5 km, 2 km, 1 km, 500 m, 200 m, 100 m) | N | Cruceta ↑ / Back |
 | Vista trasera (mantener) | B | LB / L1 |
 | Mostrar / ocultar flechas del suelo | F | Cruceta ↓ |
 
@@ -225,7 +255,8 @@ python build_hernani_data.py --center 583200 4791100 --size 3000      # área an
 python build_hernani_data.py --no-motorways        # sin A-15 / AP-1 / AP-8
 python build_hernani_data.py --no-osm              # sin sentidos/señales de OpenStreetMap
 python osm_traffic.py --refresh                    # solo vuelve a descargar y aplicar OSM (~30 s)
-python build_cars.py                               # vuelve a convertir los coches CC0 de Kenney
+python build_cars.py                               # vuelve a generar los coches (sólo necesita numpy)
+python preview_cars.py furgoneta,suv vista.png     # dibuja los coches en una imagen (necesita pillow)
 python preview_map.py                              # vuelve a dibujar Docs/mapa_circuitos.png
 ```
 También desde Unity: **Hernani Racing → 3. Regenerar datos geográficos (Python)**.
@@ -277,7 +308,9 @@ Assets/HernaniRacing/
 DataPipeline/
   build_hernani_data.py     Descarga y procesamiento de b5m, geoEuskadi e IGN (al final llama a osm_traffic)
   osm_traffic.py            Sentidos, carriles, rotondas, semáforos, STOP/ceda y pasos de cebra desde OpenStreetMap
-  build_cars.py             Conversión de los GLB CC0 de Kenney al formato JSON del juego
+  cargen.py                 Generador de geometría de coches (carrocerías por secciones, lunas, ruedas, faros...)
+  build_cars.py             Definición de cada coche (formas, detalles y física) y exportación a JSON
+  preview_cars.py           Vista previa de los coches sin abrir Unity
   preview_map.py            Mapa de control
   requirements.txt
 Server/
@@ -413,7 +446,8 @@ Si el fichero no existe, en *Opciones de conexión* hay que escribir los datos a
 * **OpenStreetMap** – © OpenStreetMap contributors, licencia **ODbL 1.0** (<https://www.openstreetmap.org/copyright>).
   Se usa para los sentidos de circulación, carriles, rotondas, semáforos, señales STOP / ceda y pasos de cebra.
   Los datos derivados (`roads.json`) quedan bajo ODbL.
-* **Coches** – *Car Kit* y *Racing Kit* de **Kenney** (<https://kenney.nl>), licencia **CC0 1.0** (dominio público).
+* **Coches** – modelos propios generados por `DataPipeline/build_cars.py`, dominio público (**CC0 1.0**). Inspirados en coches reales, sin marcas ni logotipos.
+* **Aforos de tráfico** (perfil horario de la A-15) – Diputación Foral de Gipuzkoa, vía **Open Data Euskadi** (<https://opendata.euskadi.eus>), licencia **CC BY 4.0**.
 * **LiteNetLib** 1.2.0 – © Ruslan Pyrch, licencia **MIT** (`Plugins/LiteNetLib/LICENSE.txt`, <https://github.com/RevenantX/LiteNetLib>).
 
 Los datos incluidos en este paquete se generaron con el **MDT05 del IGN** porque el servicio de geoEuskadi no
@@ -442,4 +476,4 @@ git push -u origin main
 
 Unity regenera solo `Library/`, `Temp/`, `Logs/` y `UserSettings/`; no se suben.
 El fichero más grande (`heightmap.bytes`, 15 MB) está muy por debajo del límite de GitHub (100 MB): no hace falta Git LFS.
-Datos: © b5m Gipuzkoa, © IGN (MDT05), © OpenStreetMap contributors (ODbL); coches Kenney (CC0); red LiteNetLib (MIT).
+Datos: © b5m Gipuzkoa, © IGN (MDT05), © OpenStreetMap contributors (ODbL); aforos de tráfico © Diputación Foral de Gipuzkoa / Open Data Euskadi; coches propios (CC0); red LiteNetLib (MIT).

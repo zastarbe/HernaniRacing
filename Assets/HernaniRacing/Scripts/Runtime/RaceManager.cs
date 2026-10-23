@@ -14,6 +14,13 @@ namespace HernaniRacing
         public Color paint = new Color(0.85f, 0.08f, 0.1f);
         public bool traffic = false, pedestrians = true;          // carrera
         public bool freeTraffic = true, freePedestrians = true;   // paseo libre
+        // cantidad (0 = no ... 5 = a tope, ver TrafficSystem.LevelNames); se guarda en este PC, no viaja por la red
+        public int trafficLevel = 0, pedLevel = 2, freeTrafficLevel = 2, freePedLevel = 2;
+        public bool realTimeTraffic = false;                      // ajustar la cantidad de coches a la hora real
+        public int RaceCars { get { return traffic ? Mathf.Max(1, trafficLevel) : 0; } }
+        public int RacePeds { get { return pedestrians ? Mathf.Max(1, pedLevel) : 0; } }
+        public int FreeCars { get { return freeTraffic ? Mathf.Max(1, freeTrafficLevel) : 0; } }
+        public int FreePeds { get { return freePedestrians ? Mathf.Max(1, freePedLevel) : 0; } }
         public static readonly string[] DifficultyNames = { "Fácil", "Normal", "Difícil" };
     }
 
@@ -68,7 +75,7 @@ namespace HernaniRacing
 
         MapView map;
         Vector2 mapCenter; float mapSpan;
-        bool mapZoom;
+        int mapZoom;          // 0 = circuito entero; 1.. = MapView.Zooms[mapZoom - 1] alrededor del coche
         TrafficSystem traffic;
         GuideArrows arrows;
 
@@ -165,7 +172,8 @@ namespace HernaniRacing
             if (s.traffic || s.pedestrians)
             {
                 traffic = TrafficSystem.Create(world, player.car.transform, s.traffic, s.pedestrians);
-                traffic.maxCars = 16;
+                traffic.online = online;
+                traffic.SetDensity(s.RaceCars, s.RacePeds, s.realTimeTraffic);
                 foreach (var r in racers) traffic.drivers.Add(r.car);
             }
             if (online)
@@ -180,7 +188,7 @@ namespace HernaniRacing
                 net.BecameLeader += AdoptAI;
             }
             arrows = GuideArrows.Create(circuit);
-            mapZoom = false;
+            mapZoom = 0;
             if (world.trees != null) { world.trees.drawAll = false; world.trees.drawDistance = 900f; }
 
             state = State.Countdown;
@@ -336,7 +344,7 @@ namespace HernaniRacing
                 if (!online) Time.timeScale = paused ? 0f : 1f;     // online no se puede parar el tiempo
             }
             if (GameInput.MapPressed) showMinimap = !showMinimap;
-            if (GameInput.MapZoomPressed) mapZoom = !mapZoom;
+            if (GameInput.MapZoomPressed) mapZoom = (mapZoom + 1) % (MapView.Zooms.Length + 1);
             if (GameInput.ArrowsPressed && arrows != null) arrows.show = !arrows.show;
             if (paused && !online) return;
 
@@ -640,15 +648,19 @@ namespace HernaniRacing
                 Rect mr = new Rect(W - ms - 20, 20, ms, ms);
                 GUI.Box(new Rect(mr.x - 3, mr.y - 3, ms + 6, ms + 6), GUIContent.none, box);
                 Vector3 pp2 = player.car.transform.position;
-                // zoom: ventana de ~200 x 200 m (100 m de margen alrededor del coche)
-                if (mapZoom) map.Draw(mr, new Vector2(pp2.x, pp2.z), 200f);
+                // zoom: el circuito entero o una ventana de 5 km a 100 m alrededor del coche (tecla N)
+                float span = mapZoom > 0 ? MapView.Zooms[mapZoom - 1] : mapSpan;
+                if (mapZoom > 0) map.Draw(mr, new Vector2(pp2.x, pp2.z), span);
                 else map.Draw(mr, mapCenter, mapSpan);
                 if (traffic != null)
-                    foreach (var tc in traffic.cars) if (tc != null) map.Marker(tc.transform.position, tc.transform.forward, new Color(0.75f, 0.75f, 0.75f), false, mapZoom ? 7 : 4);
+                {
+                    float ts = MapView.MarkerSize(span, 9, 3);
+                    foreach (var tc in traffic.cars) if (tc != null) map.Marker(tc.transform.position, tc.transform.forward, new Color(0.75f, 0.75f, 0.75f), false, ts);
+                }
                 foreach (var r in racers)
-                    if (!r.isPlayer && !r.gone) map.Marker(r.car.transform.position, r.car.transform.forward, r.color, false, mapZoom ? 12 : 10);
-                map.Marker(pp2, player.car.transform.forward, player.color, true, mapZoom ? 24 : 20);
-                GUI.Label(new Rect(mr.x, mr.yMax + 4, ms, 22), (mapZoom ? "Zoom 200 m" : circuit.length.ToString("F0") + " m · desnivel +" + circuit.elevationGain.ToString("F0") + " m") + "  ·  N zoom · M ocultar", small);
+                    if (!r.isPlayer && !r.gone) map.Marker(r.car.transform.position, r.car.transform.forward, r.color, false, MapView.MarkerSize(span, 14, 9));
+                map.Marker(pp2, player.car.transform.forward, player.color, true, MapView.MarkerSize(span, 26, 18));
+                GUI.Label(new Rect(mr.x, mr.yMax + 4, ms, 22), (mapZoom > 0 ? "Zoom " + MapView.ZoomLabel(span) : "Circuito: " + circuit.length.ToString("F0") + " m · desnivel +" + circuit.elevationGain.ToString("F0") + " m") + "  ·  N zoom · M ocultar", small);
             }
             if (chase != null && chase.RearView)
             {

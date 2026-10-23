@@ -5,27 +5,31 @@ using UnityEngine;
 namespace HernaniRacing
 {
     // ------------------------------------------------------------------
-    //  Coches del Car Kit de Kenney (CC0), convertidos por DataPipeline/build_cars.py a
+    //  Coches propios generados por código (DataPipeline/build_cars.py, CC0) en
     //  Resources/HernaniCars/<id>.json (coordenadas Unity, metros, origen en el suelo, morro hacia +Z).
+    //  Cada submalla lleva su tipo de material (kind: paint, glass, chrome, light...). Hay un modelo
+    //  detallado y otro ligero (LOD) que Unity usa automáticamente cuando el coche se ve pequeño.
     // ------------------------------------------------------------------
-    [Serializable] public class CarSub { public float[] color; public int paint; public int[] t; }
+    [Serializable] public class CarSub { public float[] color; public int paint; public string kind; public float smooth, metal; public int[] t; }
     [Serializable] public class CarPart { public float[] v, n; public CarSub[] sub; }
 
     [Serializable]
     public class CarModelData
     {
-        public string id, name, category, source;
+        public string id, name, category, source, description;
         public bool selectable;
         public float[] size, boundsMin, boundsMax;
         public float wheelRadius;
         public float[] wheels;            // FL, FR, RL, RR: centro de cada rueda (x,y,z)
         public CarPart body, wheelL, wheelR;
+        public CarPart bodyLod, wheelLodL, wheelLodR;   // versión ligera (puede faltar)
         public float[] paintColor;
+        public float trafficWeight;
         public float mass, maxSpeed, engine, brake, grip, downforce;
         public bool IsF1 { get { return category == "F1"; } }
     }
 
-    [Serializable] public class CarIndexEntry { public string id, name, category; public bool selectable; }
+    [Serializable] public class CarIndexEntry { public string id, name, category, description; public bool selectable; public float trafficWeight; }
     [Serializable] public class CarIndex { public CarIndexEntry[] cars; public string credits; }
 
     public static class CarModels
@@ -58,15 +62,45 @@ namespace HernaniRacing
             }
         }
 
-        /// <summary>Modelos para el tráfico (todos menos los F1).</summary>
+        static List<string> trafficIds;
+        static float[] trafficCum;
+
+        /// <summary>Modelos que salen en el tráfico (trafficWeight > 0), en el orden del índice.
+        /// El índice dentro de esta lista viaja por la red (TrafficState.model).</summary>
         public static List<string> TrafficIds
         {
             get
             {
-                var l = new List<string>();
-                foreach (var c in Index.cars) if (c.category != "F1") l.Add(c.id);
-                return l;
+                if (trafficIds == null)
+                {
+                    trafficIds = new List<string>();
+                    var w = new List<float>();
+                    foreach (var c in Index.cars)
+                        if (c.trafficWeight > 0f) { trafficIds.Add(c.id); w.Add(c.trafficWeight); }
+                    if (trafficIds.Count == 0)          // índice antiguo sin pesos: todos menos los F1
+                        foreach (var c in Index.cars) if (c.category != "F1") { trafficIds.Add(c.id); w.Add(1f); }
+                    trafficCum = new float[w.Count];
+                    float acc = 0f;
+                    for (int i = 0; i < w.Count; i++) { acc += w[i]; trafficCum[i] = acc; }
+                }
+                return new List<string>(trafficIds);
             }
+        }
+
+        /// <summary>Modelo de tráfico al azar según su frecuencia real (muchos compactos, pocos superdeportivos).</summary>
+        public static string PickTraffic(System.Random rnd)
+        {
+            var ids = TrafficIds;
+            if (ids.Count == 0) return null;
+            float r = (float)rnd.NextDouble() * trafficCum[trafficCum.Length - 1];
+            for (int i = 0; i < trafficCum.Length; i++) if (r <= trafficCum[i]) return ids[i];
+            return ids[ids.Count - 1];
+        }
+
+        /// <summary>Coches con librea propia (no se repintan en el tráfico).</summary>
+        public static bool FixedLivery(string id)
+        {
+            return id == "taxi" || id == "policia" || id == "ambulancia" || id == "reparto";
         }
 
         public static CarModelData Get(string id)
@@ -109,7 +143,22 @@ namespace HernaniRacing
             {
                 var sb = p.sub[s];
                 Color c = new Color(sb.color[0], sb.color[1], sb.color[2]);
-                if (sb.paint != 0) { mats[s] = Mat.Color(paint, 0.7f); continue; }
+                if (sb.paint != 0) { mats[s] = Mat.Color(paint, 0.72f); continue; }
+                if (!string.IsNullOrEmpty(sb.kind))
+                {
+                    switch (sb.kind)
+                    {
+                        case "light": mats[s] = Mat.Emissive(c, 1.2f); break;
+                        case "tail": mats[s] = Mat.Emissive(c, 0.6f); break;
+                        case "amber": mats[s] = Mat.Emissive(c, 0.5f); break;
+                        case "beacon": mats[s] = Mat.Emissive(c, 1.6f); break;
+                        case "glass": mats[s] = Mat.Metal(c, 0.95f, 0.25f); break;
+                        default:
+                            mats[s] = sb.metal > 0.01f ? Mat.Metal(c, sb.smooth, sb.metal) : Mat.Color(c, sb.smooth);
+                            break;
+                    }
+                    continue;
+                }
                 float sat = Mathf.Max(c.r, c.g, c.b) - Mathf.Min(c.r, c.g, c.b);
                 bool glass = c.b > 0.75f && c.b >= c.r && sat < 0.35f && c.g > 0.7f;
                 bool light = c.r > 0.9f && c.g > 0.65f && c.b < 0.4f;          // faros ámbar/amarillos
@@ -133,10 +182,11 @@ namespace HernaniRacing
             var car = go.AddComponent<CarController>();
             car.model = d;
 
-            var bodyGo = new GameObject("Carroceria");
-            bodyGo.transform.SetParent(go.transform, false);
-            bodyGo.AddComponent<MeshFilter>().sharedMesh = PartMesh(d.id + "_body", d.body);
-            bodyGo.AddComponent<MeshRenderer>().sharedMaterials = PartMaterials(d.body, paint);
+            var lod0 = new List<Renderer>();
+            var lod1 = new List<Renderer>();
+            lod0.Add(AddPart(go.transform, "Carroceria", d.id + "_body", d.body, paint));
+            if (d.bodyLod != null && d.bodyLod.v != null && d.bodyLod.v.Length > 0)
+                lod1.Add(AddPart(go.transform, "CarroceriaLod", d.id + "_bodylod", d.bodyLod, paint));
 
             // colisionadores: bajos de la carrocería + habitáculo (en los F1 sólo el monocasco)
             Vector3 lo = new Vector3(d.boundsMin[0], d.boundsMin[1], d.boundsMin[2]);
@@ -161,10 +211,6 @@ namespace HernaniRacing
             car.ApplyModel(d);
 
             // ruedas
-            var wl = PartMesh(d.id + "_wl", d.wheelL);
-            var wr = PartMesh(d.id + "_wr", d.wheelR);
-            var wmL = PartMaterials(d.wheelL, paint);
-            var wmR = PartMaterials(d.wheelR, paint);
             string[] wn = { "Rueda_DI", "Rueda_DD", "Rueda_TI", "Rueda_TD" };
             for (int i = 0; i < 4; i++)
             {
@@ -173,40 +219,65 @@ namespace HernaniRacing
                 var w = new GameObject(wn[i]);
                 w.transform.SetParent(go.transform, false);
                 w.transform.localPosition = c;
-                var holder = new GameObject("mesh");
-                holder.transform.SetParent(w.transform, false);
-                bool left = c.x < 0;
-                holder.AddComponent<MeshFilter>().sharedMesh = left ? wl : wr;
-                holder.AddComponent<MeshRenderer>().sharedMaterials = left ? wmL : wmR;
+                AddWheel(d, w.transform, c.x < 0, paint, lod0, lod1);
                 car.wheelVisuals[i] = w.transform;
             }
+            SetupLod(go, lod0, lod1);
             if (isPlayer) go.AddComponent<EngineAudio>().car = car;
             return car;
         }
 
         /// <summary>Sólo el aspecto (para peatones/escaparate): sin físicas.</summary>
-        public static GameObject CreateVisual(string id, Color paint, Transform parent)
+        public static GameObject CreateVisual(string id, Color paint, Transform parent, bool noLod = false)
         {
             var d = Get(id);
             var go = new GameObject("Coche_" + id);
             go.transform.SetParent(parent, false);
             if (d == null) return go;
-            var b = new GameObject("Carroceria");
-            b.transform.SetParent(go.transform, false);
-            b.AddComponent<MeshFilter>().sharedMesh = PartMesh(d.id + "_body", d.body);
-            b.AddComponent<MeshRenderer>().sharedMaterials = PartMaterials(d.body, paint);
-            var wl = PartMesh(d.id + "_wl", d.wheelL);
-            var wr = PartMesh(d.id + "_wr", d.wheelR);
+            var lod0 = new List<Renderer>();
+            var lod1 = new List<Renderer>();
+            lod0.Add(AddPart(go.transform, "Carroceria", d.id + "_body", d.body, paint));
+            if (d.bodyLod != null && d.bodyLod.v != null && d.bodyLod.v.Length > 0)
+                lod1.Add(AddPart(go.transform, "CarroceriaLod", d.id + "_bodylod", d.bodyLod, paint));
             for (int i = 0; i < 4; i++)
             {
                 Vector3 c = new Vector3(d.wheels[i * 3], d.wheels[i * 3 + 1], d.wheels[i * 3 + 2]);
                 var w = new GameObject("Rueda" + i);
                 w.transform.SetParent(go.transform, false);
                 w.transform.localPosition = c;
-                w.AddComponent<MeshFilter>().sharedMesh = c.x < 0 ? wl : wr;
-                w.AddComponent<MeshRenderer>().sharedMaterials = PartMaterials(c.x < 0 ? d.wheelL : d.wheelR, paint);
+                AddWheel(d, w.transform, c.x < 0, paint, lod0, lod1);
             }
+            if (!noLod) SetupLod(go, lod0, lod1);
+            else foreach (var r in lod1) r.gameObject.SetActive(false);
             return go;
+        }
+
+        static Renderer AddPart(Transform parent, string name, string key, CarPart p, Color paint)
+        {
+            var g = new GameObject(name);
+            g.transform.SetParent(parent, false);
+            g.AddComponent<MeshFilter>().sharedMesh = PartMesh(key, p);
+            var r = g.AddComponent<MeshRenderer>();
+            r.sharedMaterials = PartMaterials(p, paint);
+            return r;
+        }
+
+        static void AddWheel(CarModelData d, Transform w, bool left, Color paint, List<Renderer> lod0, List<Renderer> lod1)
+        {
+            lod0.Add(AddPart(w, "mesh", d.id + (left ? "_wl" : "_wr"), left ? d.wheelL : d.wheelR, paint));
+            var pl = left ? d.wheelLodL : d.wheelLodR;
+            if (pl != null && pl.v != null && pl.v.Length > 0)
+                lod1.Add(AddPart(w, "lod", d.id + (left ? "_wll" : "_wlr"), pl, paint));
+        }
+
+        /// <summary>Modelo detallado de cerca y ligero de lejos (ahorra muchos triángulos con tráfico denso).</summary>
+        static void SetupLod(GameObject go, List<Renderer> lod0, List<Renderer> lod1)
+        {
+            if (lod1.Count == 0) return;
+            var g = go.AddComponent<LODGroup>();
+            g.SetLODs(new[] { new LOD(0.09f, lod0.ToArray()), new LOD(0.004f, lod1.ToArray()) });
+            g.fadeMode = LODFadeMode.None;
+            g.RecalculateBounds();
         }
 
 #if UNITY_6000_0_OR_NEWER

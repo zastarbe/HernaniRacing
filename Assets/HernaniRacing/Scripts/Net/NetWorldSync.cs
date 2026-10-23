@@ -48,7 +48,8 @@ namespace HernaniRacing
         {
             var go = new GameObject("Red (online)");
             var s = go.AddComponent<NetWorldSync>();
-            s.net = net; s.world = w; s.traffic = traffic; s.localPlayer = localPlayer; s.dynamicPlayers = dynamicPlayers;
+            s.net = net; s.world = w; s.traffic = traffic;
+            if (traffic != null) traffic.online = true; s.localPlayer = localPlayer; s.dynamicPlayers = dynamicPlayers;
             s.root = go.transform;
             net.Core.RelayReceived += s.OnRelay;
             return s;

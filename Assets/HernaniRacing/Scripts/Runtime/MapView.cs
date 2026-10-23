@@ -5,10 +5,26 @@ namespace HernaniRacing
 {
     /// <summary>
     /// Plano de Hernani para el HUD (calles b5m con su anchura, edificios y río). Se dibuja una ventana del
-    /// plano: el circuito completo o un zoom de ~200 x 200 m alrededor del jugador (tecla N).
+    /// plano: el circuito completo o un zoom de 5 km a 100 m alrededor del jugador (tecla N).
+    /// Para los zooms cercanos se dibuja aparte (en segundo plano) un plano detallado de 0,5 m por píxel.
     /// </summary>
     public class MapView
     {
+        /// <summary>Zooms del minimapa (ancho de la ventana en metros).</summary>
+        public static readonly float[] Zooms = { 5000f, 2000f, 1000f, 500f, 200f, 100f };
+
+        public static string ZoomLabel(float span)
+        {
+            return span >= 1000f ? (span / 1000f).ToString("0") + " km" : span.ToString("0") + " m";
+        }
+
+        /// <summary>Tamaño de los marcadores según el zoom.</summary>
+        public static float MarkerSize(float span, float near, float far)
+        {
+            float t = Mathf.InverseLerp(Mathf.Log(100f), Mathf.Log(5000f), Mathf.Log(Mathf.Max(1f, span)));
+            return Mathf.Lerp(near, far, t);
+        }
+
         public const float MetersPerPx = 2.5f;
         static int PxX = 1, PxY = 1;           // tamaño del plano base (todo el área)
         static Texture2D baseTex;
@@ -27,6 +43,7 @@ namespace HernaniRacing
             tex = baseTex;
             texArea = new Rect(0, 0, PxX * MetersPerPx, PxY * MetersPerPx);
             if (circuit == null) return;
+            circuitPts = circuit.raw;
             // recorte del plano alrededor del circuito (+400 m) con el trazado encima
             Vector2 mn = new Vector2(1e9f, 1e9f), mx = new Vector2(-1e9f, -1e9f);
             foreach (var p in circuit.raw) { mn = Vector2.Min(mn, new Vector2(p.x, p.z)); mx = Vector2.Max(mx, new Vector2(p.x, p.z)); }
@@ -52,6 +69,8 @@ namespace HernaniRacing
         public void Dispose()
         {
             if (tex != null && tex != baseTex) Object.Destroy(tex);
+            if (detailTex != null) Object.Destroy(detailTex);
+            detailTex = null;
         }
 
         static Vector2 ToPx(Vector3 p) { return new Vector2(p.x * scale, p.z * scale); }
@@ -106,9 +125,10 @@ namespace HernaniRacing
                     Line(px, W, H, new Vector2(e.pts[i].x * sc, e.pts[i].z * sc), new Vector2(e.pts[i + 1].x * sc, e.pts[i + 1].z * sc), rad, col);
             }
             basePx = px;
-            baseTex = new Texture2D(W, H, TextureFormat.RGBA32, false) { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp, name = "HR_map" };
+            // con mipmaps: el zoom de 5 km se ve limpio (sin parpadeo)
+            baseTex = new Texture2D(W, H, TextureFormat.RGBA32, true) { filterMode = FilterMode.Trilinear, wrapMode = TextureWrapMode.Clamp, name = "HR_map" };
             baseTex.SetPixels32(px);
-            baseTex.Apply(false);
+            baseTex.Apply(true);
         }
 
         /// <summary>
@@ -209,6 +229,18 @@ namespace HernaniRacing
             center.x = span >= fullX ? fullX * 0.5f : Mathf.Clamp(center.x, half, fullX - half);
             center.y = span >= fullZ ? fullZ * 0.5f : Mathf.Clamp(center.y, half, fullZ - half);
             lastCenter = center; lastSpan = span; lastRect = r;
+            if (span <= DetailMaxSpan)
+            {
+                PollDetail(center);
+                if (detailTex != null && center.x - half >= detailArea.xMin && center.x + half <= detailArea.xMax &&
+                    center.y - half >= detailArea.yMin && center.y + half <= detailArea.yMax)
+                {
+                    var duv = new Rect((center.x - half - detailArea.x) / detailArea.width, (center.y - half - detailArea.y) / detailArea.height,
+                                       span / detailArea.width, span / detailArea.height);
+                    GUI.DrawTextureWithTexCoords(r, detailTex, duv);
+                    return;
+                }
+            }
             // el recorte con el circuito si la ventana cabe en él; si no, el plano completo (sin trazado)
             Texture2D t = tex; Rect a = texArea;
             if (tex != baseTex && !(center.x - half >= a.xMin && center.x + half <= a.xMax && center.y - half >= a.yMin && center.y + half <= a.yMax))
@@ -218,6 +250,149 @@ namespace HernaniRacing
         }
 
         Vector2 lastCenter; float lastSpan; Rect lastRect;
+
+        // ------------------------------------------------------------------ plano detallado (zooms de 200 y 100 m)
+        const float DetailMPerPx = 0.5f, DetailSize = 640f;        // 1280 x 1280 px = 640 x 640 m
+        const float DetailMaxSpan = 260f;
+        Texture2D detailTex;
+        Rect detailArea;
+        System.Threading.Thread worker;
+        volatile bool workerDone;
+        Color32[] workerPx;
+        Rect workerArea;
+        Vector3[][] edgePts; float[] edgeWidth; bool[] edgeMain;
+        Vector2[][] bldPolys; Rect[] bldBox;
+        Vector2[][] rivPts; float[] rivWidth;
+        Vector3[] circuitPts;
+
+        void PollDetail(Vector2 center)
+        {
+            if (worker != null)
+            {
+                if (!workerDone) return;
+                worker = null;
+                int n = Mathf.RoundToInt(DetailSize / DetailMPerPx);
+                if (detailTex == null)
+                    detailTex = new Texture2D(n, n, TextureFormat.RGBA32, true) { filterMode = FilterMode.Trilinear, wrapMode = TextureWrapMode.Clamp, name = "HR_map_detail" };
+                detailTex.SetPixels32(workerPx);
+                detailTex.Apply(true);
+                detailArea = workerArea;
+                workerPx = null;
+            }
+            // nuevo recorte cuando el coche se acerca al borde del actual
+            if (detailTex != null && Mathf.Abs(center.x - detailArea.center.x) < DetailSize * 0.25f &&
+                Mathf.Abs(center.y - detailArea.center.y) < DetailSize * 0.25f) return;
+            PrepareVectors();
+            var area = new Rect(center.x - DetailSize * 0.5f, center.y - DetailSize * 0.5f, DetailSize, DetailSize);
+            workerArea = area;
+            workerDone = false;
+            worker = new System.Threading.Thread(() =>
+            {
+                try { workerPx = RasterDetail(area); }
+                catch (System.Exception) { workerPx = new Color32[(int)(DetailSize / DetailMPerPx) * (int)(DetailSize / DetailMPerPx)]; }
+                workerDone = true;
+            }) { IsBackground = true, Name = "HR minimapa" };
+            worker.Start();
+        }
+
+        /// <summary>Copia los datos del plano en arrays simples (el hilo de dibujo no toca objetos de Unity).</summary>
+        void PrepareVectors()
+        {
+            if (edgePts != null) return;
+            var g = world.graph;
+            edgePts = new Vector3[g.edges.Length][]; edgeWidth = new float[g.edges.Length]; edgeMain = new bool[g.edges.Length];
+            for (int i = 0; i < g.edges.Length; i++)
+            {
+                edgePts[i] = g.edges[i].pts; edgeWidth[i] = g.edges[i].width; edgeMain[i] = g.edges[i].type == "Carretera";
+            }
+            var bl = new List<Vector2[]>(); var bb = new List<Rect>();
+            foreach (var b in world.data.buildings.buildings)
+            {
+                if (b.v == null || b.r == null || b.r.Length == 0 || b.r[0] < 3) continue;
+                int n = b.r[0];
+                var poly = new Vector2[n];
+                Vector2 mn = new Vector2(1e9f, 1e9f), mx = new Vector2(-1e9f, -1e9f);
+                for (int i = 0; i < n; i++)
+                {
+                    poly[i] = new Vector2(b.v[i * 2], b.v[i * 2 + 1]);
+                    mn = Vector2.Min(mn, poly[i]); mx = Vector2.Max(mx, poly[i]);
+                }
+                bl.Add(poly); bb.Add(Rect.MinMaxRect(mn.x, mn.y, mx.x, mx.y));
+            }
+            bldPolys = bl.ToArray(); bldBox = bb.ToArray();
+            var rp = new List<Vector2[]>(); var rw = new List<float>();
+            if (world.data.scenery.rivers != null)
+                foreach (var r in world.data.scenery.rivers)
+                {
+                    var pts = new Vector2[r.p.Length / 3];
+                    for (int i = 0; i < pts.Length; i++) pts[i] = new Vector2(r.p[i * 3], r.p[i * 3 + 2]);
+                    rp.Add(pts); rw.Add(r.width);
+                }
+            rivPts = rp.ToArray(); rivWidth = rw.ToArray();
+        }
+
+        Color32[] RasterDetail(Rect area)
+        {
+            int W = Mathf.RoundToInt(area.width / DetailMPerPx), H = W;
+            float sc = 1f / DetailMPerPx;
+            var px = new Color32[W * H];
+            var bg = new Color32(58, 74, 52, 235);
+            for (int i = 0; i < px.Length; i++) px[i] = bg;
+            Rect big = new Rect(area.x - 20, area.y - 20, area.width + 40, area.height + 40);
+            System.Func<Vector2, Vector2> tp = q => new Vector2((q.x - area.x) * sc, (q.y - area.y) * sc);
+            var bcol = new Color32(150, 140, 128, 255);
+            var bedge = new Color32(112, 104, 96, 255);
+            for (int k = 0; k < bldPolys.Length; k++)
+            {
+                if (!bldBox[k].Overlaps(big)) continue;
+                var src = bldPolys[k];
+                var poly = new Vector2[src.Length];
+                Vector2 mn = new Vector2(1e9f, 1e9f), mx = new Vector2(-1e9f, -1e9f);
+                for (int i = 0; i < src.Length; i++) { poly[i] = tp(src[i]); mn = Vector2.Min(mn, poly[i]); mx = Vector2.Max(mx, poly[i]); }
+                for (int y = Mathf.Max(0, (int)mn.y); y <= Mathf.Min(H - 1, (int)mx.y); y++)
+                    for (int x = Mathf.Max(0, (int)mn.x); x <= Mathf.Min(W - 1, (int)mx.x); x++)
+                        if (Inside(poly, x + 0.5f, y + 0.5f)) px[y * W + x] = bcol;
+                for (int i = 0; i < poly.Length; i++) Line(px, W, H, poly[i], poly[(i + 1) % poly.Length], 0.6f, bedge);
+            }
+            for (int k = 0; k < rivPts.Length; k++)
+            {
+                var r = rivPts[k];
+                for (int i = 0; i + 1 < r.Length; i++)
+                    if (big.Contains(r[i]) || big.Contains(r[i + 1]))
+                        Line(px, W, H, tp(r[i]), tp(r[i + 1]), Mathf.Max(1f, rivWidth[k] * 0.5f * sc), new Color32(70, 130, 200, 255));
+            }
+            for (int pass = 0; pass < 2; pass++)
+                for (int k = 0; k < edgePts.Length; k++)
+                {
+                    var pts = edgePts[k];
+                    float rad = Mathf.Max(1.5f, edgeWidth[k] * 0.5f * sc);
+                    var col = pass == 0 ? new Color32(30, 30, 32, 255)
+                        : edgeWidth[k] >= 10f ? new Color32(235, 160, 90, 255) : (edgeMain[k] ? new Color32(240, 215, 140, 255) : new Color32(215, 215, 215, 255));
+                    for (int i = 0; i + 1 < pts.Length; i++)
+                    {
+                        Vector2 a = new Vector2(pts[i].x, pts[i].z), b = new Vector2(pts[i + 1].x, pts[i + 1].z);
+                        if (!big.Contains(a) && !big.Contains(b) && !SegmentNear(a, b, big)) continue;
+                        Line(px, W, H, tp(a), tp(b), pass == 0 ? rad + 1.6f : rad, col);
+                    }
+                }
+            if (circuitPts != null && circuitPts.Length > 1)
+            {
+                int n = circuitPts.Length;
+                for (int i = 0; i < n; i++)
+                {
+                    Vector2 a = new Vector2(circuitPts[i].x, circuitPts[i].z), b = new Vector2(circuitPts[(i + 1) % n].x, circuitPts[(i + 1) % n].z);
+                    if (!big.Contains(a) && !big.Contains(b)) continue;
+                    Line(px, W, H, tp(a), tp(b), 3.0f, new Color32(255, 40, 30, 255));
+                }
+            }
+            return px;
+        }
+
+        static bool SegmentNear(Vector2 a, Vector2 b, Rect r)
+        {
+            Rect sb = Rect.MinMaxRect(Mathf.Min(a.x, b.x), Mathf.Min(a.y, b.y), Mathf.Max(a.x, b.x), Mathf.Max(a.y, b.y));
+            return sb.Overlaps(r);
+        }
 
         /// <summary>Posición en pantalla (GUI) de un punto del mundo en el último plano dibujado.</summary>
         public bool ToScreen(Vector3 p, out Vector2 sp)

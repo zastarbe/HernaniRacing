@@ -2,70 +2,108 @@
  "cars": [
   {
    "id": "turismo",
-   "name": "Turismo GT",
-   "category": "Turismo",
-   "selectable": true
+   "name": "Turismo GT (Golf GTI)",
+   "category": "Compacto deportivo",
+   "selectable": true,
+   "trafficWeight": 1.0,
+   "description": "El clásico 'GTI': ligero, rápido y fácil de conducir."
   },
   {
    "id": "berlina",
-   "name": "Berlina familiar",
-   "category": "Turismo",
-   "selectable": true
+   "name": "Berlina de rally (Impreza)",
+   "category": "Berlina deportiva",
+   "selectable": true,
+   "trafficWeight": 0.6,
+   "description": "Tracción total, alerón grande y llantas doradas: agarre de rally."
   },
   {
    "id": "utilitario",
-   "name": "Utilitario",
+   "name": "Utilitario clásico (500)",
    "category": "Utilitario",
-   "selectable": true
+   "selectable": true,
+   "trafficWeight": 0.6,
+   "description": "Diminuto, ligero y con techo de lona. Ágil en el casco viejo."
   },
   {
    "id": "furgoneta",
-   "name": "Furgoneta",
-   "category": "Furgoneta",
-   "selectable": true
+   "name": "Furgoneta hippie",
+   "category": "Furgoneta clásica",
+   "selectable": true,
+   "trafficWeight": 0.5,
+   "description": "Bitono, flores, baca y tabla de surf. Lenta pero muy maja."
   },
   {
    "id": "f1",
    "name": "Fórmula 1",
    "category": "F1",
-   "selectable": true
+   "selectable": true,
+   "trafficWeight": 0.0,
+   "description": "Monoplaza de carreras: agarre y frenada brutales, pero muy bajo."
   },
   {
    "id": "f1futuro",
-   "name": "Fórmula 1 (futuro)",
-   "category": "F1",
-   "selectable": true
+   "name": "Superdeportivo (McLaren F1)",
+   "category": "Superdeportivo",
+   "selectable": true,
+   "trafficWeight": 0.08,
+   "description": "El coche de calle más rápido de los 90: motor central y toma de aire en el techo."
   },
   {
    "id": "suv",
-   "name": "Todoterreno SUV",
-   "category": "Turismo",
-   "selectable": true
+   "name": "Todoterreno clásico (Land Rover)",
+   "category": "Todoterreno",
+   "selectable": true,
+   "trafficWeight": 0.5,
+   "description": "Cuadrado, alto y duro. Lento en asfalto, pero no se arruga ante nada."
   },
   {
    "id": "taxi",
    "name": "Taxi",
-   "category": "Turismo",
-   "selectable": false
+   "category": "Tráfico",
+   "selectable": false,
+   "trafficWeight": 1.0,
+   "description": ""
   },
   {
    "id": "policia",
    "name": "Ertzaintza",
-   "category": "Turismo",
-   "selectable": false
+   "category": "Tráfico",
+   "selectable": false,
+   "trafficWeight": 0.4,
+   "description": ""
   },
   {
    "id": "ambulancia",
    "name": "Ambulancia",
-   "category": "Furgoneta",
-   "selectable": false
+   "category": "Tráfico",
+   "selectable": false,
+   "trafficWeight": 0.25,
+   "description": ""
   },
   {
    "id": "reparto",
    "name": "Camión de reparto",
-   "category": "Furgoneta",
-   "selectable": false
+   "category": "Tráfico",
+   "selectable": false,
+   "trafficWeight": 1.0,
+   "description": ""
+  },
+  {
+   "id": "compacto",
+   "name": "Compacto",
+   "category": "Tráfico",
+   "selectable": false,
+   "trafficWeight": 5.0,
+   "description": ""
+  },
+  {
+   "id": "crossover",
+   "name": "Crossover",
+   "category": "Tráfico",
+   "selectable": false,
+   "trafficWeight": 4.0,
+   "description": ""
   }
  ],
- "credits": "Car Kit de Kenney (kenney.nl), licencia CC0 1.0"
+ "credits": "Modelos 3D propios generados por código (DataPipeline/build_cars.py), dominio público (CC0). Inspirados en coches reales, sin marcas ni logotipos."
 }

@@ -27,8 +27,9 @@ namespace HernaniRacing
         float orthoSize = 900f;
         bool showZones = true, showLandmarks = true;
         Vector2 dragStart; Vector3 dragCam; bool dragging;
-        Rect panelScreenRect;
-        Vector2 scroll;
+        Rect panelScreenRect, panel2ScreenRect;
+        float fitL = 1f, fitR = 1f;      // escala de cada panel para que todo quepa sin barras de desplazamiento
+        const float LeftW = 500f, RightW = 450f;
         int shownVersion = -1;
         System.Action pending;   // las acciones se aplican fuera de OnGUI (evita errores de layout)
 
@@ -48,7 +49,6 @@ namespace HernaniRacing
             mode = m;
             open = true;
             enabled = true;
-            scroll = Vector2.zero;
             var cam = game.MainCamera;
             var cc = cam.GetComponent<ChaseCamera>();
             if (cc != null) cc.enabled = false;
@@ -232,13 +232,13 @@ namespace HernaniRacing
         float PanelShift()
         {
             float ui = Screen.height / 1080f;
-            float panelPx = 520f * ui;
+            float panelPx = (LeftW - RightW) * ui;          // panel a la izquierda y otro a la derecha
             float worldPerPx = orthoSize * 2f / Mathf.Max(1, Screen.height);
             return panelPx * 0.5f * worldPerPx;
         }
 
         // ------------------------------------------------------------------ GUI
-        GUIStyle title, h2, txt, small, tagSt, tagBold, box, tip, bigBtn, midBtn, onBtn;
+        GUIStyle title, h2, txt, small, tagSt, tagBold, box, tip, bigBtn, midBtn, onBtn, levelSt, toggleSt;
 
         void Styles()
         {
@@ -264,6 +264,10 @@ namespace HernaniRacing
             midBtn = new GUIStyle(GUI.skin.button) { fontSize = 19, fontStyle = FontStyle.Bold, fixedHeight = 44 };
             onBtn = new GUIStyle(GUI.skin.button) { fontSize = 16, fontStyle = FontStyle.Bold };
             onBtn.normal.textColor = onBtn.hover.textColor = new Color(1f, 0.85f, 0.25f);
+            levelSt = new GUIStyle(txt) { fontSize = 19, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter, wordWrap = false };
+            levelSt.normal.textColor = new Color(1f, 0.85f, 0.25f);
+            toggleSt = new GUIStyle(GUI.skin.toggle) { fontSize = 15, wordWrap = true };
+            toggleSt.normal.textColor = toggleSt.onNormal.textColor = toggleSt.hover.textColor = toggleSt.onHover.textColor = new Color(0.92f, 0.92f, 0.92f);
         }
 
         void OnGUI()
@@ -274,7 +278,7 @@ namespace HernaniRacing
             float ui = Screen.height / 1080f;
             Event ev = Event.current;
             Vector2 mouse = ev.mousePosition;
-            bool overPanel = panelScreenRect.Contains(mouse);
+            bool overPanel = panelScreenRect.Contains(mouse) || panel2ScreenRect.Contains(mouse);
             var g = world.graph;
 
             // ---- etiquetas de barrios y lugares (coordenadas de pantalla reales)
@@ -386,21 +390,50 @@ namespace HernaniRacing
                 ev.Use();
             }
 
-            // ---- panel
-            GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(ui, ui, 1));
-            Rect panel = new Rect(16, 16, 480, 1080 - 32);
-            panelScreenRect = new Rect(panel.x * ui, panel.y * ui, panel.width * ui, panel.height * ui);
-            GUI.Box(panel, GUIContent.none, box);
-            GUILayout.BeginArea(new Rect(panel.x + 18, panel.y + 12, panel.width - 36, panel.height - 24));
-            scroll = GUILayout.BeginScrollView(scroll);
-            if (mode == MapMode.Circuit) CircuitPanel(); else FreePanel();
-            GUILayout.EndScrollView();
-            GUILayout.EndArea();
+            // ---- paneles: izquierda = dónde (circuito / salida), derecha = opciones y botones
+            float refW = Screen.width / ui;
+            Rect left = new Rect(16, 16, LeftW, 1080 - 32);
+            Rect right = new Rect(refW - RightW - 16, 16, RightW, 1080 - 32);
+            if (mode == MapMode.Circuit)
+            {
+                panelScreenRect = DrawPanel(left, ref fitL, CircuitLeft);
+                panel2ScreenRect = DrawPanel(right, ref fitR, CircuitRight);
+            }
+            else
+            {
+                panelScreenRect = DrawPanel(left, ref fitL, FreeLeft);
+                panel2ScreenRect = DrawPanel(right, ref fitR, FreeRight);
+            }
             GUI.matrix = Matrix4x4.identity;
         }
 
+        /// <summary>
+        /// Dibuja un panel (en coordenadas de referencia 1920×1080). Si el contenido no cabe, se reduce un poco
+        /// la escala del panel en el siguiente fotograma: nunca hacen falta barras de desplazamiento.
+        /// </summary>
+        Rect DrawPanel(Rect panel, ref float fit, System.Action content)
+        {
+            float ui = Screen.height / 1080f;
+            GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(ui * fit, ui * fit, 1));
+            Rect lp = new Rect(panel.x / fit, panel.y / fit, panel.width / fit, panel.height / fit);
+            GUI.Box(lp, GUIContent.none, box);
+            float avail = lp.height - 24;
+            GUILayout.BeginArea(new Rect(lp.x + 18, lp.y + 12, lp.width - 36, avail));
+            GUILayout.BeginVertical();
+            content();
+            GUILayout.EndVertical();
+            if (Event.current.type == EventType.Repaint)
+            {
+                float used = GUILayoutUtility.GetLastRect().yMax;
+                if (used > avail) fit = Mathf.Max(0.6f, fit * Mathf.Clamp(avail / used, 0.9f, 0.99f));
+                else if (used < avail * 0.9f && fit < 1f) fit = Mathf.Min(1f, fit * 1.01f);
+            }
+            GUILayout.EndArea();
+            return new Rect(panel.x * ui, panel.y * ui, panel.width * ui, panel.height * ui);
+        }
+
         // ------------------------------------------------------------------ paneles
-        void CircuitPanel()
+        void CircuitLeft()
         {
             var g = world.graph;
             var sel = state.sel;
@@ -458,18 +491,20 @@ namespace HernaniRacing
             }
             else if (!string.IsNullOrEmpty(state.info)) GUILayout.Label("⚠ " + state.info, txt);
             else GUILayout.Label(sel.Count < 4 ? "Faltan " + (4 - sel.Count) + " cruces." : "", txt);
+            GUI.enabled = true;
+        }
 
-            GUILayout.Space(8);
-            GUILayout.Label("Carrera", h2);
+        void CircuitRight()
+        {
+            var s = state.settings;
+            bool lockUI = Locked;
+            GUILayout.Label("CARRERA", title);
             menu.RaceControls(txt, lockUI);
 
-            GUILayout.Space(6);
-            GUILayout.Label("Tráfico y peatones en la carrera", h2);
-            s.traffic = YesNo("Tráfico", s.traffic);
-            s.pedestrians = YesNo("Peatones", s.pedestrians);
-            GUILayout.Label("Los coches respetan sentidos, semáforos, STOP, ceda el paso, rotondas y pasos de cebra (OpenStreetMap).", small);
+            GUILayout.Space(10);
+            GUILayout.Label("Tráfico y peatones", h2);
+            TrafficControls(ref s.traffic, ref s.trafficLevel, ref s.pedestrians, ref s.pedLevel, lockUI);
 
-            GUI.enabled = true;
             GUILayout.BeginHorizontal();
             showZones = GUILayout.Toggle(showZones, " Barrios");
             showLandmarks = GUILayout.Toggle(showLandmarks, " Lugares (zoom)");
@@ -487,9 +522,10 @@ namespace HernaniRacing
             if (GUILayout.Button(online ? "◄ VOLVER A LA SALA" : "◄ MENÚ PRINCIPAL", midBtn)) pending = menu.Back;
             GUILayout.Space(10);
             foreach (var a in world.data.meta.attribution) GUILayout.Label(a, small);
+            GUILayout.Label("Tráfico según la hora: aforos de la A-15 (Diputación Foral de Gipuzkoa, Open Data Euskadi).", small);
         }
 
-        void FreePanel()
+        void FreeLeft()
         {
             var s = state.settings;
             bool online = menu.InRoom;
@@ -523,11 +559,19 @@ namespace HernaniRacing
                 GUILayout.EndHorizontal();
             }
 
-            GUILayout.Space(10);
-            GUILayout.Label("Tráfico y peatones", h2);
-            s.freeTraffic = YesNo("Tráfico", s.freeTraffic);
-            s.freePedestrians = YesNo("Peatones", s.freePedestrians);
+            GUILayout.Space(8);
             GUILayout.Label("Ratón: arrastrar = mover, rueda = zoom · WASD/flechas, Q/E", small);
+            GUI.enabled = true;
+        }
+
+        void FreeRight()
+        {
+            var s = state.settings;
+            bool online = menu.InRoom;
+            bool lockUI = Locked;
+            GUILayout.Label("OPCIONES", title);
+            GUILayout.Label("Tráfico y peatones", h2);
+            TrafficControls(ref s.freeTraffic, ref s.freeTrafficLevel, ref s.freePedestrians, ref s.freePedLevel, lockUI);
             GUI.enabled = true;
             GUILayout.BeginHorizontal();
             showZones = GUILayout.Toggle(showZones, " Barrios");
@@ -546,6 +590,54 @@ namespace HernaniRacing
             }
             GUILayout.Space(4);
             if (GUILayout.Button(online ? "◄ VOLVER A LA SALA" : "◄ MENÚ PRINCIPAL", midBtn)) pending = menu.Back;
+        }
+
+        /// <summary>
+        /// Cantidad de coches y peatones (No … A tope) y la opción de seguir la hora real.
+        /// Online, el líder decide si hay tráfico o no; la cantidad la elige cada uno en su PC.
+        /// </summary>
+        void TrafficControls(ref bool carsOn, ref int carLv, ref bool pedsOn, ref int pedLv, bool locked)
+        {
+            var s = state.settings;
+            bool prev = GUI.enabled;
+            int c = carsOn ? Mathf.Max(1, carLv) : 0, p = pedsOn ? Mathf.Max(1, pedLv) : 0;
+            int nc = LevelRow("Coches", c, locked, carsOn);
+            int np = LevelRow("Peatones", p, locked, pedsOn);
+            if (nc != c) { carLv = nc; if (!locked) carsOn = nc > 0; }
+            if (np != p) { pedLv = np; if (!locked) pedsOn = np > 0; }
+            GUI.enabled = prev;
+            GUILayout.Space(2);
+            s.realTimeTraffic = GUILayout.Toggle(s.realTimeTraffic, " Según la hora real (más en hora punta, casi nada de madrugada)", toggleSt);
+            if (s.realTimeTraffic && carsOn) GUILayout.Label(TrafficSystem.RealTimeLabel(c), small);
+            else GUILayout.Label("Unos " + TrafficSystem.CarsByLevel[c] + " coches y " + TrafficSystem.PedsByLevel[p] + " peatones a tu alrededor" +
+                                 (menu.InRoom ? " (online, máx. " + TrafficSystem.OnlineMaxCars + " coches)" : "") + ".", small);
+            GUILayout.Label("Respetan sentidos, semáforos, STOP, ceda el paso, rotondas y pasos de cebra (OpenStreetMap).", small);
+        }
+
+        int LevelRow(string label, int v, bool locked, bool on)
+        {
+            bool prev = GUI.enabled;
+            // online: si el líder ha quitado el tráfico no se puede poner; si lo ha puesto, no se puede quitar
+            int min = locked && on ? 1 : 0, max = locked && !on ? 0 : 5;
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(label, txt, GUILayout.Width(92), GUILayout.Height(34));
+            GUI.enabled = prev && v > min;
+            if (GUILayout.Button("−", GUILayout.Width(40), GUILayout.Height(34))) v--;
+            GUI.enabled = prev;
+            GUILayout.Label(TrafficSystem.LevelNames[v], levelSt, GUILayout.Width(118), GUILayout.Height(34));
+            GUI.enabled = prev && v < max;
+            if (GUILayout.Button("+", GUILayout.Width(40), GUILayout.Height(34))) v++;
+            GUI.enabled = prev;
+            Rect r = GUILayoutUtility.GetRect(96, 34, GUILayout.Width(96));
+            if (Event.current.type == EventType.Repaint)
+                for (int i = 0; i < 5; i++)
+                {
+                    float h = 8 + i * 4.5f;
+                    var bar = new Rect(r.x + 6 + i * 18, r.yMax - 6 - h, 13, h);
+                    GUI.DrawTexture(bar, Tex.Solid(i < v ? new Color(1f, 0.85f, 0.25f) : new Color(1f, 1f, 1f, 0.18f)));
+                }
+            GUILayout.EndHorizontal();
+            return Mathf.Clamp(v, min, max);
         }
 
         bool YesNo(string label, bool value)

@@ -308,7 +308,7 @@ namespace HernaniRacing
             DrawCards(x0, y, cardW, cardH, gap, false);
 
             GUI.Label(new Rect(60, 1080 - 34, W - 120, 24),
-                "Datos: © b5m Gipuzkoa · © geoEuskadi · © IGN (MDT05) · © OpenStreetMap contributors (ODbL) · coches Kenney (CC0)", small);
+                "Datos: © b5m Gipuzkoa · © geoEuskadi · © IGN (MDT05) · © OpenStreetMap contributors (ODbL) · tráfico: aforos DFG / Open Data Euskadi · coches propios (CC0)", small);
         }
 
         void Quit()
@@ -404,7 +404,8 @@ namespace HernaniRacing
             RaceControls(txt, locked);
             GUILayout.Space(14);
             var s = state.settings;
-            GUILayout.Label("Tráfico: " + (s.traffic ? "sí" : "no") + "   ·   Peatones: " + (s.pedestrians ? "sí" : "no"), txt);
+            GUILayout.Label("Tráfico: " + TrafficSystem.LevelNames[s.RaceCars].ToLower() + (s.realTimeTraffic && s.traffic ? " (según la hora)" : "") +
+                            "   ·   Peatones: " + TrafficSystem.LevelNames[s.RacePeds].ToLower(), txt);
             GUILayout.Label("(se cambia en la pantalla del circuito)", small);
             if (state.CircuitOk)
             {
@@ -515,7 +516,8 @@ namespace HernaniRacing
             GUILayout.BeginArea(new Rect(pr.x + 24, img.yMax + 10, pr.width - 48, pr.yMax - img.yMax - 20));
             GUILayout.Label(md != null ? md.name : s.carId, carName);
             string desc;
-            CarText.TryGetValue(s.carId, out desc);
+            if (md != null && !string.IsNullOrEmpty(md.description)) desc = md.description;
+            else CarText.TryGetValue(s.carId, out desc);
             GUILayout.Label((md != null ? md.category : "") + (string.IsNullOrEmpty(desc) ? "" : " · " + desc), txt);
             GUILayout.Space(6);
             if (md != null)

@@ -128,12 +128,12 @@ namespace HernaniRacing
             if (s.car != null) Destroy(s.car);
             s.id = id;
             s.paint = paint;
-            s.car = CarModels.CreateVisual(id, paint, s.root);
+            s.car = CarModels.CreateVisual(id, paint, s.root, true);
             SetLayer(s.car.transform);
             var d = CarModels.Get(id);
             float L = 4.2f, H = 1.3f, W = 1.8f, y0 = 0f;
             if (d != null && d.size != null && d.size.Length >= 3) { W = d.size[0]; H = d.size[1]; L = d.size[2]; }
-            if (d != null && d.boundsMin != null && d.boundsMin.Length >= 3) y0 = d.boundsMin[1];
+            // el origen del modelo ya está en el suelo (ruedas apoyadas en y = 0)
             // apoyado en el suelo y centrado
             s.car.transform.localPosition = new Vector3(0, -y0, 0);
             s.car.transform.localRotation = Quaternion.Euler(0, s.yaw, 0);

@@ -102,15 +102,30 @@ namespace HernaniRacing
             return m;
         }
 
-        public static Material Emissive(Color c)
+        public static Material Emissive(Color c, float intensity = 1.5f)
         {
-            string key = "e" + ColorUtility.ToHtmlStringRGBA(c);
+            string key = "e" + ColorUtility.ToHtmlStringRGBA(c) + intensity.ToString("F2");
             Material m;
             if (cache.TryGetValue(key, out m) && m != null) return m;
-            m = new Material(Lit) { name = "HR_" + key };
+            m = new Material(Lit) { name = "HR_" + key, enableInstancing = true };
             SetColor(m, c);
             m.EnableKeyword("_EMISSION");
-            if (m.HasProperty("_EmissionColor")) m.SetColor("_EmissionColor", c * 1.5f);
+            if (m.HasProperty("_EmissionColor")) m.SetColor("_EmissionColor", c * intensity);
+            m.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
+            cache[key] = m;
+            return m;
+        }
+
+        /// <summary>Material con brillo metálico (cromados, llantas, cristales).</summary>
+        public static Material Metal(Color c, float smooth, float metallic)
+        {
+            string key = "m" + ColorUtility.ToHtmlStringRGBA(c) + smooth.ToString("F2") + metallic.ToString("F2");
+            Material m;
+            if (cache.TryGetValue(key, out m) && m != null) return m;
+            m = new Material(Lit) { name = "HR_" + key, enableInstancing = true };
+            SetColor(m, c);
+            SetSmoothness(m, smooth);
+            if (m.HasProperty("_Metallic")) m.SetFloat("_Metallic", metallic);
             cache[key] = m;
             return m;
         }

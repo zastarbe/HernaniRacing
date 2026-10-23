@@ -17,6 +17,126 @@ namespace HernaniRacing
         public readonly List<CarController> drivers = new List<CarController>();   // jugador y rivales (obstáculos)
         public bool carsOn = true, pedestriansOn = true;
         public int maxCars = 24, maxPeds = 40;
+        public bool online;                 // online: límite más bajo (cada jugador simula el tráfico de su zona)
+        int carLevel = 2, pedLevel = 2;
+        bool realTime;
+        float realFactorCars = 1f, realFactorPeds = 1f, nextRealUpdate;
+
+        // ------------------------------------------------------------------ densidad del tráfico
+        public static readonly string[] LevelNames = { "No", "Poco", "Normal", "Mucho", "Muchísimo", "A tope" };
+        public static readonly int[] CarsByLevel = { 0, 12, 24, 45, 70, 100 };
+        public static readonly int[] PedsByLevel = { 0, 15, 40, 70, 100, 140 };
+        public const int OnlineMaxCars = 60, OnlineMaxPeds = 80;
+
+        /// <summary>
+        /// Vehículos/hora medios de la A-15 en Hernani (aforador 259-ETD, Diputación Foral de Gipuzkoa, mediana de 2023,
+        /// datos abiertos de Open Data Euskadi), por día de la semana (lunes..domingo) y hora (0..23). Media: 1810.
+        /// No hay datos de tráfico en tiempo real abiertos y gratuitos, así que se usa el perfil típico de cada hora.
+        /// </summary>
+        static readonly int[] A15 =
+        {
+            333, 292, 175, 170, 215, 285, 1034, 1662, 3603, 3566, 3015, 2683, 2587, 2738, 3005, 3335, 3270, 3412, 3545, 3159, 2371, 1670, 1223, 952,
+            370, 191, 130, 131, 166, 289, 1042, 1762, 3625, 3666, 3088, 2641, 2749, 2662, 3055, 3405, 3395, 3419, 3487, 3158, 2379, 1662, 1293, 972,
+            427, 218, 161, 147, 166, 280, 1032, 1717, 3602, 3644, 3108, 2607, 2569, 2736, 3163, 3431, 3337, 3496, 3524, 3291, 2315, 1800, 1260, 1001,
+            472, 230, 152, 145, 164, 265, 1018, 1641, 3600, 3595, 3069, 2587, 2631, 2658, 3041, 3271, 3243, 3351, 3382, 3076, 2350, 1815, 1272, 996,
+            600, 271, 158, 162, 172, 285, 1030, 1831, 3334, 3391, 2949, 2642, 2745, 2853, 3319, 3942, 3404, 3304, 3336, 3056, 2606, 2012, 1416, 1096,
+            718, 480, 271, 212, 193, 201, 400, 619, 938, 1310, 1844, 2127, 2354, 2606, 2596, 1985, 1638, 1785, 2122, 2238, 2164, 1886, 1356, 948,
+            489, 503, 355, 266, 182, 180, 245, 324, 436, 703, 1019, 1371, 1750, 1852, 1982, 1493, 1336, 1645, 2006, 2388, 2453, 1978, 1336, 868
+        };
+        const float A15Mean = 1810f;
+
+        public static float A15At(System.DateTime t)
+        {
+            int d = ((int)t.DayOfWeek + 6) % 7;                 // lunes = 0
+            int h = t.Hour, h2 = (h + 1) % 24;
+            int d2 = h2 == 0 ? (d + 1) % 7 : d;
+            float f = t.Minute / 60f;
+            return Mathf.Lerp(A15[d * 24 + h], A15[d2 * 24 + h2], f);
+        }
+
+        /// <summary>Multiplicador de coches según la hora real (1 = media del día). Peatones: más suave.</summary>
+        public static float RealTimeFactor(System.DateTime t, bool peds = false)
+        {
+            float r = A15At(t) / A15Mean;
+            return peds ? Mathf.Clamp(Mathf.Pow(r, 0.5f), 0.25f, 1.5f) : Mathf.Clamp(Mathf.Pow(r, 0.8f), 0.15f, 2f);
+        }
+
+        static readonly string[] DayNames = { "lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo" };
+
+        /// <summary>Texto para el menú: "Ahora (jueves 22:30): poco tráfico (×0,6)".</summary>
+        public static string RealTimeLabel(int level)
+        {
+            var t = System.DateTime.Now;
+            float f = RealTimeFactor(t);
+            int n = Mathf.RoundToInt(CarsByLevel[Mathf.Clamp(level, 0, 5)] * f);
+            string how = f < 0.35f ? "casi vacío" : f < 0.75f ? "poco tráfico" : f < 1.25f ? "tráfico normal" : f < 1.7f ? "mucho tráfico" : "hora punta";
+            return "Ahora (" + DayNames[((int)t.DayOfWeek + 6) % 7] + " " + t.ToString("HH:mm") + "): " + how +
+                   " · ×" + f.ToString("0.0") + " → unos " + n + " coches";
+        }
+
+        /// <summary>Nivel de coches y peatones (0..5) y si se ajusta a la hora real.</summary>
+        public void SetDensity(int cars, int peds, bool byRealTime)
+        {
+            carLevel = Mathf.Clamp(cars, 0, 5); pedLevel = Mathf.Clamp(peds, 0, 5); realTime = byRealTime;
+            carsOn = carLevel > 0; pedestriansOn = pedLevel > 0;
+            nextRealUpdate = 0f;
+            UpdateDensity();
+        }
+
+        void UpdateDensity()
+        {
+            if (Time.unscaledTime < nextRealUpdate) return;
+            nextRealUpdate = Time.unscaledTime + 30f;
+            var now = System.DateTime.Now;
+            realFactorCars = realTime ? RealTimeFactor(now) : 1f;
+            realFactorPeds = realTime ? RealTimeFactor(now, true) : 1f;
+            int c = Mathf.RoundToInt(CarsByLevel[carLevel] * realFactorCars);
+            int p = Mathf.RoundToInt(PedsByLevel[pedLevel] * realFactorPeds);
+            if (carLevel > 0) c = Mathf.Max(c, 3);
+            if (pedLevel > 0) p = Mathf.Max(p, 4);
+            if (online) { c = Mathf.Min(c, OnlineMaxCars); p = Mathf.Min(p, OnlineMaxPeds); }
+            maxCars = c; maxPeds = p;
+        }
+
+        // tramos cercanos al jugador (para no sortear entre los miles de tramos de todo el mapa)
+        Rect[] edgeBox;
+        readonly List<int> nearEdges = new List<int>();
+        Vector3 nearCenter = new Vector3(1e9f, 0, 1e9f);
+        float nearR, nearTime;
+
+        List<int> NearEdges(Vector3 c, float r)
+        {
+            var g = world.graph;
+            if (edgeBox == null || edgeBox.Length != g.edges.Length)
+            {
+                edgeBox = new Rect[g.edges.Length];
+                for (int i = 0; i < g.edges.Length; i++)
+                {
+                    var pts = g.edges[i].pts;
+                    float x0 = float.MaxValue, z0 = float.MaxValue, x1 = float.MinValue, z1 = float.MinValue;
+                    foreach (var q in pts) { x0 = Mathf.Min(x0, q.x); z0 = Mathf.Min(z0, q.z); x1 = Mathf.Max(x1, q.x); z1 = Mathf.Max(z1, q.z); }
+                    edgeBox[i] = Rect.MinMaxRect(x0, z0, x1, z1);
+                }
+            }
+            if (Flat(c - nearCenter) < 40f && Mathf.Abs(r - nearR) < 1f && Time.time - nearTime < 4f) return nearEdges;
+            nearCenter = c; nearR = r; nearTime = Time.time;
+            nearEdges.Clear();
+            float R = r + 40f;
+            for (int i = 0; i < edgeBox.Length; i++)
+            {
+                var b = edgeBox[i];
+                float dx = Mathf.Max(b.xMin - c.x, 0f, c.x - b.xMax), dz = Mathf.Max(b.yMin - c.z, 0f, c.z - b.yMax);
+                if (dx * dx + dz * dz < R * R) nearEdges.Add(i);
+            }
+            return nearEdges;
+        }
+
+        /// <summary>Probabilidad de que salga un coche en cada tipo de vía (más en la autovía y carreteras).</summary>
+        static float RoadWeight(RoadEdge e)
+        {
+            if (e.type == "Carretera") return e.lanes >= 2 ? 1f : 0.6f;
+            return e.lanes >= 2 ? 0.35f : 0.2f;
+        }
         public readonly List<TrafficCar> cars = new List<TrafficCar>();
         public readonly List<Pedestrian> peds = new List<Pedestrian>();
         // online: tráfico/peatones que simulan otros jugadores y coches de los otros jugadores
@@ -85,13 +205,14 @@ namespace HernaniRacing
                 float dMine = Flat(p.transform.position - pp);
                 if (NearestPlayer(p.transform.position, dMine) > 230f || dMine > 500f || p.WantsDespawn || !pedestriansOn) { p.Release(); Destroy(p.gameObject); peds.RemoveAt(i); }
             }
+            UpdateDensity();
             if (Time.time < nextSpawn) return;
-            nextSpawn = Time.time + 0.25f;
+            nextSpawn = Time.time + (maxCars > 40 || maxPeds > 70 ? 0.12f : 0.25f);
             // online: los coches y peatones que ya trae otro jugador cerca de mí cuentan para la densidad
             int nCars = cars.Count, nPeds = peds.Count;
             foreach (var rc in remoteCars) if (rc != null && Flat(rc.transform.position - pp) < 260f) nCars++;
             foreach (var rp in remotePeds) if (rp != null && Flat(rp.transform.position - pp) < 170f) nPeds++;
-            if (carsOn && nCars < maxCars) TrySpawnCar(pp, nCars < maxCars / 2 ? 45f : 75f, 250f);
+            if (carsOn && nCars < maxCars) TrySpawnCar(pp, nCars < maxCars / 2 ? 45f : 75f, maxCars > 50 ? 280f : 250f);
             if (pedestriansOn && nPeds < maxPeds) TrySpawnPed(pp, 30f, 160f);
         }
 
@@ -121,11 +242,14 @@ namespace HernaniRacing
         void TrySpawnCar(Vector3 pp, float rMin, float rMax)
         {
             var g = world.graph;
-            for (int attempt = 0; attempt < 12; attempt++)
+            var near = NearEdges(pp, rMax);
+            if (near.Count == 0) return;
+            for (int attempt = 0; attempt < 30; attempt++)
             {
-                int ei = rnd.Next(g.edges.Length);
+                int ei = near[rnd.Next(near.Count)];
                 var e = g.edges[ei];
                 if (e.length < 18f) continue;
+                if (rnd.NextDouble() > RoadWeight(e)) continue;
                 float s = Mathf.Lerp(8f, e.length - 8f, (float)rnd.NextDouble());
                 Vector3 p = e.PointAt(s, true);
                 float d = Flat(p - pp);
@@ -139,10 +263,10 @@ namespace HernaniRacing
                 foreach (var rc in remoteCars) if (rc != null && Flat(rc.transform.position - p) < 18f) { clear = false; break; }
                 if (clear && NearOther(p, rMin)) clear = false;
                 if (!clear) continue;
-                string id = models.Count > 0 ? models[rnd.Next(models.Count)] : null;
+                string id = CarModels.PickTraffic(rnd);
                 var md = CarModels.Get(id);
                 if (md == null) return;
-                Color paint = id == "taxi" || id == "policia" || id == "ambulancia" ? CarModels.DefaultPaint(id) : Paints[rnd.Next(Paints.Length)];
+                Color paint = CarModels.FixedLivery(id) ? CarModels.DefaultPaint(id) : Paints[rnd.Next(Paints.Length)];
                 var go = CarModels.CreateVisual(id, paint, root);
                 var tc = go.AddComponent<TrafficCar>();
                 tc.netId = NewNetId();
@@ -157,9 +281,11 @@ namespace HernaniRacing
         void TrySpawnPed(Vector3 pp, float rMin, float rMax)
         {
             var g = world.graph;
+            var near = NearEdges(pp, Mathf.Max(rMax, nearR));
+            if (near.Count == 0) return;
             for (int attempt = 0; attempt < 10; attempt++)
             {
-                int ei = rnd.Next(g.edges.Length);
+                int ei = near[rnd.Next(near.Count)];
                 var e = g.edges[ei];
                 float s0, s1;
                 if (!Pedestrian.Sidewalk(g, e, out s0, out s1)) continue;

@@ -108,6 +108,11 @@ namespace HernaniRacing
                 restLength = 0.42f; spring = 32000f * k; damper = 3200f * k; antiRoll = 9000f * k;
                 drag = 0.42f * Mathf.Lerp(1f, 1.5f, Mathf.Clamp01((h - 1.4f) / 0.8f));   // furgonetas: más resistencia
                 if (h > 1.8f) { maxSteerLow = 32f; maxSteerHigh = 8f; }
+                if (d.category == "Superdeportivo")
+                {
+                    // muy bajo: suspensión corta y dura, poca resistencia al aire
+                    restLength = 0.3f; spring = 42000f * k; damper = 3900f * k; antiRoll = 12000f * k; drag = 0.36f;
+                }
             }
             Body.centerOfMass = new Vector3(0, Mathf.Clamp(0.08f + 0.12f * h, 0.15f, 0.42f), 0.05f);
         }

@@ -16,7 +16,8 @@ namespace HernaniRacing
         ChaseCamera chase;
         TrafficSystem traffic;
         MapView map;
-        bool mapZoom = true, showMap = true, paused;
+        int mapZoom = 4;      // índice en MapView.Zooms (4 = 200 m)
+        bool showMap = true, paused;
         string message; float messageUntil;
         float wrongTimer;
         bool wrongWay;
@@ -77,6 +78,7 @@ namespace HernaniRacing
             if (w.trees != null) { w.trees.drawAll = false; w.trees.drawDistance = 900f; }
 
             traffic = TrafficSystem.Create(w, car.transform, s.freeTraffic, s.freePedestrians);
+            traffic.SetDensity(s.FreeCars, s.FreePeds, s.realTimeTraffic);
             traffic.drivers.Add(car);
             if (map == null) map = new MapView(w, null);
             paused = false;
@@ -172,7 +174,7 @@ namespace HernaniRacing
             if (GameInput.PausePressed) { paused = !paused; if (!online) Time.timeScale = paused ? 0f : 1f; }
             if (paused && !online) return;
             if (GameInput.MapPressed) showMap = !showMap;
-            if (GameInput.MapZoomPressed) mapZoom = !mapZoom;
+            if (GameInput.MapZoomPressed) mapZoom = (mapZoom + 1) % MapView.Zooms.Length;
             if (GameInput.ResetPressed) ResetCar();
             if (Vector3.Dot(car.transform.up, Vector3.up) < 0.2f && car.Speed < 1f) ResetCar();
             if (car.transform.position.y < -50f) ResetCar();
@@ -320,17 +322,20 @@ namespace HernaniRacing
                 float ms = 300;
                 Rect mr = new Rect(W - ms - 20, 20, ms, ms);
                 GUI.Box(new Rect(mr.x - 3, mr.y - 3, ms + 6, ms + 6), GUIContent.none, box);
-                float span = mapZoom ? 200f : 700f;
+                float span = MapView.Zooms[Mathf.Clamp(mapZoom, 0, MapView.Zooms.Length - 1)];
                 map.Draw(mr, new Vector2(p.x, p.z), span);
                 if (traffic != null)
-                    foreach (var tc in traffic.cars) if (tc != null) map.Marker(tc.transform.position, tc.transform.forward, new Color(0.85f, 0.85f, 0.9f), false, mapZoom ? 7 : 4);
-                if (world.signals != null)
-                    foreach (var j in world.signals.Junctions) map.Marker(g.nodes[j.node], Vector3.forward, new Color(1f, 0.6f, 0.1f), false, 6);
+                {
+                    float ts = MapView.MarkerSize(span, 9, 3);
+                    foreach (var tc in traffic.cars) if (tc != null) map.Marker(tc.transform.position, tc.transform.forward, new Color(0.85f, 0.85f, 0.9f), false, ts);
+                }
+                if (world.signals != null && span <= 1000f)
+                    foreach (var j in world.signals.Junctions) map.Marker(g.nodes[j.node], Vector3.forward, new Color(1f, 0.6f, 0.1f), false, MapView.MarkerSize(span, 8, 4));
                 if (sync != null)
                     foreach (var nc in sync.cars.Values)
-                        if (nc.Remote && !nc.gone && nc.car != null) map.Marker(nc.car.transform.position, nc.car.transform.forward, nc.color, false, mapZoom ? 14 : 11);
-                map.Marker(p, car.transform.forward, settings.paint, true, mapZoom ? 24 : 18);
-                GUI.Label(new Rect(mr.x, mr.yMax + 4, ms, 22), (mapZoom ? "Zoom 200 m" : "700 m") + " · N zoom · M ocultar", small);
+                        if (nc.Remote && !nc.gone && nc.car != null) map.Marker(nc.car.transform.position, nc.car.transform.forward, nc.color, false, MapView.MarkerSize(span, 15, 10));
+                map.Marker(p, car.transform.forward, settings.paint, true, MapView.MarkerSize(span, 26, 16));
+                GUI.Label(new Rect(mr.x, mr.yMax + 4, ms, 22), "Zoom " + MapView.ZoomLabel(span) + " · N zoom · M ocultar", small);
             }
 
             if (wrongWay)

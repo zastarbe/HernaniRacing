@@ -8,3 +8,4 @@ geopandas>=0.14
 rasterio>=1.3
 networkx>=3.0
 matplotlib>=3.7   # sólo para preview_map.py
+pillow>=9      # sólo para preview_cars.py
