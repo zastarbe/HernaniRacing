@@ -135,7 +135,12 @@ namespace HernaniRacing
         }
     }
 
-    /// <summary>Sonido de motor sintetizado (no requiere clips de audio).</summary>
+    /// <summary>
+    /// Sonido de motor sintetizado (no requiere clips de audio). En PC se genera muestra a muestra
+    /// (OnAudioFilterRead); en el navegador ese método no existe, así que se crea un bucle de 1 s con el mismo
+    /// timbre y se cambia su tono (pitch). Al terminar la carrera, ShutDown() apaga el motor: el sonido baja de
+    /// tono y de volumen a medida que el coche se para y, ya parado, se apaga del todo.
+    /// </summary>
     [RequireComponent(typeof(AudioSource))]
     public class EngineAudio : MonoBehaviour
     {
@@ -144,15 +149,65 @@ namespace HernaniRacing
         float phase, phase2, freq = 40f, targetFreq = 40f, gain;
         int sampleRate;
         readonly System.Random rnd = new System.Random();
+        AudioSource src;
+
+        // apagado del motor (tras la meta)
+        bool shutdown;
+        float shutV0 = 1f, shutT, idleFade = 1f;
+        public bool IsOff { get { return shutdown && idleFade <= 0f; } }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+        static readonly bool UseClip = true;
+#else
+        static readonly bool UseClip = false;
+#endif
+        const float ClipBase = 80f;     // Hz del bucle (80 ciclos exactos en 1 s: empalme sin chasquidos)
+        static AudioClip loopClip;
 
         void Start()
         {
             sampleRate = AudioSettings.outputSampleRate;
-            var src = GetComponent<AudioSource>();
+            src = GetComponent<AudioSource>();
             src.playOnAwake = true;
             src.spatialBlend = 0f;
             src.loop = true;
+            if (UseClip)
+            {
+                src.clip = LoopClip();
+                src.volume = 0f;
+            }
             src.Play();
+        }
+
+        /// <summary>Bucle de 1 s con la misma mezcla (sierra + cuadrada a media frecuencia + ruido) a 80 Hz.</summary>
+        static AudioClip LoopClip()
+        {
+            if (loopClip != null) return loopClip;
+            const int rate = 44100;
+            var data = new float[rate];
+            var r = new System.Random(5);
+            for (int i = 0; i < rate; i++)
+            {
+                float ph = (i * ClipBase / rate) % 1f;
+                float ph2 = (i * ClipBase * 0.5f / rate) % 1f;
+                float saw = ph * 2f - 1f;
+                float sq = ph2 < 0.5f ? 0.6f : -0.6f;
+                float noise = ((float)r.NextDouble() * 2f - 1f) * 0.08f;
+                data[i] = saw * 0.5f + sq * 0.4f + noise;
+            }
+            loopClip = AudioClip.Create("HR_motor", rate, 1, rate, false);
+            loopClip.SetData(data, 0);
+            return loopClip;
+        }
+
+        /// <summary>Apagar el motor: el ruido baja con la velocidad y se apaga al pararse.</summary>
+        public void ShutDown()
+        {
+            if (shutdown) return;
+            shutdown = true;
+            shutT = 0f;
+            idleFade = 1f;
+            shutV0 = Mathf.Max(car != null ? Mathf.Abs(car.ForwardSpeed) : 0f, 4f);
         }
 
         void Update()
@@ -164,13 +219,35 @@ namespace HernaniRacing
             float inGear = (sp % gearSpan) / gearSpan;
             int gear = Mathf.Min(4, (int)(sp / gearSpan));
             float rpm = 0.25f + 0.75f * Mathf.Clamp01(gear == 0 ? sp / gearSpan : 0.35f + inGear * 0.65f);
+            float load = Mathf.Clamp01(car.throttle);
+            float level = 1f;
+            if (shutdown)
+            {
+                shutT += Time.deltaTime;
+                // sin gas (el motor ya no empuja) y cada vez más bajo a medida que el coche se para
+                load = 0f;
+                float k = Mathf.Clamp01(sp / shutV0);
+                // ya casi parado (o pasado un rato): el motor se apaga del todo en ~1,2 s
+                if (sp < 1.2f || shutT > 12f) idleFade = Mathf.MoveTowards(idleFade, 0f, Time.deltaTime / 1.2f);
+                rpm = Mathf.Lerp(0.12f, rpm, k) * (0.6f + 0.4f * idleFade);
+                level = (0.25f + 0.75f * k) * idleFade;
+            }
             targetFreq = 38f + rpm * 120f;
-            gain = Mathf.Lerp(gain, volume * (0.45f + 0.55f * Mathf.Clamp01(car.throttle)), Time.deltaTime * 5f);
+            float want = volume * (0.45f + 0.55f * load) * level;
+            gain = Mathf.Lerp(gain, want, Time.deltaTime * (shutdown ? 3f : 5f));
+            if (shutdown && idleFade <= 0f && gain < 0.002f) gain = 0f;
+            if (UseClip && src != null)
+            {
+                freq = Mathf.Lerp(freq, targetFreq, 1f - Mathf.Exp(-Time.deltaTime * 4f));
+                src.pitch = Mathf.Clamp(freq / ClipBase, 0.2f, 3f);
+                src.volume = Mathf.Clamp01(gain * 1.6f);
+            }
         }
 
         void OnAudioFilterRead(float[] data, int channels)
         {
-            if (sampleRate == 0) return;
+            if (UseClip || sampleRate == 0) return;
+            float g = gain;
             for (int i = 0; i < data.Length; i += channels)
             {
                 freq += (targetFreq - freq) * 0.0005f;
@@ -181,7 +258,7 @@ namespace HernaniRacing
                 float saw = phase * 2f - 1f;
                 float sq = phase2 < 0.5f ? 0.6f : -0.6f;
                 float noise = ((float)rnd.NextDouble() * 2f - 1f) * 0.08f;
-                float s = (saw * 0.5f + sq * 0.4f + noise) * gain;
+                float s = (saw * 0.5f + sq * 0.4f + noise) * g;
                 for (int c = 0; c < channels; c++) data[i + c] = s;
             }
         }

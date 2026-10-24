@@ -298,16 +298,14 @@ namespace HernaniRacing
             var sm = new GUIStyle(small) { alignment = TextAnchor.MiddleCenter };
             GUI.Label(new Rect(W / 2 - gw / 2, 86, gw, 24), extra + " · Altitud " + p.y.ToString("F0") + " m · UTM " + utm.x.ToString("F0") + " / " + utm.y.ToString("F0"), sm);
 
-            // velocímetro
+            // velocímetro de aguja + digital
             float kmh = Mathf.Abs(car.ForwardSpeed) * 3.6f;
-            GUI.Box(new Rect(W - 260, H - 150, 240, 130), GUIContent.none, box);
-            GUI.Label(new Rect(W - 250, H - 150, 160, 90), kmh.ToString("0"), big);
-            var kl = new GUIStyle(label) { alignment = TextAnchor.MiddleLeft };
-            GUI.Label(new Rect(W - 85, H - 118, 70, 40), "km/h", kl);
+            Speedometer.Draw(new Rect(W - 300, H - 300, 280, 280), kmh, car.maxSpeed * 3.6f, car.Reversing && car.ForwardSpeed < -0.5f);
             float lim = curEdge >= 0 ? (g.edges[curEdge].width >= 10f ? 120f : (g.edges[curEdge].type == "Carretera" ? 50f : 30f)) : 0f;
             if (lim > 0)
             {
-                GUI.Label(new Rect(W - 250, H - 62, 230, 30), "Límite orientativo " + lim.ToString("0") + (kmh > lim + 5 ? "  ⚠" : ""), new GUIStyle(small) { alignment = TextAnchor.MiddleCenter });
+                GUI.Box(new Rect(W - 300, H - 340, 280, 34), GUIContent.none, box);
+                GUI.Label(new Rect(W - 300, H - 340, 280, 34), "Límite orientativo " + lim.ToString("0") + (kmh > lim + 5 ? "  ⚠" : ""), new GUIStyle(small) { alignment = TextAnchor.MiddleCenter });
             }
             GUI.Box(new Rect(20, 20, 300, 88), GUIContent.none, box);
             var ll = new GUIStyle(small) { fontSize = 18 };

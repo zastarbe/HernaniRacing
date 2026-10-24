@@ -11,6 +11,25 @@ laterales quedan abiertas y la calzada va pegada al terreno real.
 También hay un modo **Paseo libre**: conduces por todo Hernani sin carrera, con tráfico y peatones que respetan
 las señales.
 
+## Novedades (versión 11): ortofoto, velocímetro de aguja y Unity 6.3
+* **Suelo con la ortofoto real.** En la presentación, *SUPERFICIE DEL SUELO*: **Colores** (lo de siempre) u **Ortofoto 2025**.
+  Es la foto aérea más reciente de **b5m** (vuelo de julio y agosto de 2025, píxel de 15 cm), guardada a **0,5 m por píxel**: una imagen
+  de 2048 × 2048 px por cada kilómetro cuadrado, 70 en total. Se ven los prados, los bosques, los tejados, los
+  aparcamientos y el río tal como son. También se cambia durante el juego con la tecla **O** (o la cruceta ← del mando).
+  Las calles, las marcas viales, los edificios y los árboles en 3D siguen encima. La de 15 cm no cabe en un juego:
+  serían unos 4.700 megapíxeles para todo el área.
+* **Velocímetro de aguja**, como el de un coche de verdad, con la velocidad también **en números** en una pantallita digital.
+  La escala se adapta a cada coche (0–180 km/h para un utilitario, hasta 400 km/h para el Fórmula 1) y la zona roja empieza en su
+  velocidad punta. Con **R** en rojo cuando vas marcha atrás.
+* **Al terminar la carrera se apaga el motor**: el sonido baja de tono y de volumen a medida que el coche frena, y se apaga del todo
+  al pararse.
+* **Sonido del motor también en la versión web.** El navegador no permite generar el sonido muestra a muestra. Ahora la web usa un
+  bucle con el mismo timbre al que se le cambia el tono.
+* **Arreglada la cámara al empezar.** Al salir desde la pantalla del mapa (circuito o paseo), la cámara se quedaba con la vista
+  cenital del mapa y se veía todo lejos (hasta que se reiniciaba la carrera). Ahora se coloca siempre detrás del coche.
+* **Unity 6.3 LTS.** Revisado contra la API de Unity 6.3. Nuevo menú **Hernani Racing → 3. Preparar ajustes para el build web**,
+  que deja la configuración del build web hecha (paso a paso en 1.1).
+
 ## Novedades (versión 10): online también desde el navegador
 * **La versión web ya juega online**, en las **mismas salas** que los de PC: unos desde el .exe y otros desde Chrome/Edge/Firefox,
   todos juntos (carreras y paseo libre, hasta 8 por sala, con tráfico y peatones).
@@ -135,15 +154,16 @@ las señales.
 
 ## 1. Puesta en marcha (5 minutos)
 
-Requisitos: **Unity 2021.3 LTS o posterior** (probado contra la API de 2021.3; hay ramas
-`#if` para **Unity 6** y para el **nuevo Input System**). Vale Built‑in o URP.
+Requisitos: **Unity 6.3 LTS** (recomendado) o cualquier versión desde la 2021.3 LTS. Hay ramas `#if` para **Unity 6** y para el
+**nuevo Input System**. Vale Built‑in o URP.
 
-1. En Unity Hub crea un proyecto nuevo **3D (Built‑in)** o **3D (URP)**.
+1. En Unity Hub crea un proyecto nuevo **Universal 3D** (URP) o **3D (Built‑In Render Pipeline)**.
 2. Copia la carpeta `Assets/HernaniRacing` dentro del `Assets` de tu proyecto.
 3. *(Opcional)* Copia `DataPipeline/` **junto a** `Assets/` (en la raíz del proyecto) si quieres regenerar los datos.
 4. En Unity, en el menú **Hernani Racing → 1. Crear escena de juego**.
-   Se crea `Assets/HernaniRacing/Scenes/Hernani.unity`, se añade a *Build Settings* y se
+   Se crea `Assets/HernaniRacing/Scenes/Hernani.unity`, se añade a la lista de escenas del build (*Build Profiles → Scene List*) y se
    registran los shaders necesarios.
+   La primera vez Unity importa las 70 imágenes de la ortofoto (con compresión *crunch*): tarda unos minutos.
 5. Pulsa **Play**. Hay una pantalla de carga de unos segundos mientras se construye el mundo
    (terreno de 10,2 × 7,2 km en 70 teselas, unos 6.750 edificios, unos 206.000 árboles, calles, puentes y túneles).
    La primera carga tarda más que en la versión anterior (en un PC normal, entre 20 y 60 s).
@@ -151,16 +171,33 @@ Requisitos: **Unity 2021.3 LTS o posterior** (probado contra la API de 2021.3; h
 > Si tu proyecto usa **solo** el nuevo Input System (lo habitual en Unity 6), el código lo detecta
 > automáticamente. Con *Active Input Handling = Both* se usa el Input Manager clásico.
 
-Para un ejecutable: *File → Build Settings → Build*. Antes de cada build se añaden solos los shaders que hacen
-falta (materiales y terreno); si aun así algo sale rosa o invisible, ejecuta **Hernani Racing → 2. Incluir shaders para builds**
-y vuelve a hacer el build.
+Para un ejecutable (Unity 6): *File → Build Profiles → Windows → Build* (en Unity 2022: *File → Build Settings → Build*).
+Antes de cada build se añaden solos los shaders que hacen falta (materiales y terreno). Si aun así algo sale rosa o invisible,
+ejecuta **Hernani Racing → 2. Incluir shaders para builds** y vuelve a hacer el build.
 
-**Build WebGL (navegador):** *File → Build Settings → WebGL → Switch Platform → Build*. Copia también
-`Assets/HernaniRacing/link.xml` (va dentro de la carpeta `HernaniRacing`). Recomendado en *Player Settings → WebGL → Other
-Settings*: *Managed Stripping Level = Minimal*; si aun así cayeran los coches, desmarca *Strip Engine Code*. El mundo es
-grande: en *Publishing Settings* pon *Compression Format = **Gzip*** (Brotli sólo funciona por https) y, en *Other Settings →
-Memory*, *Maximum Memory Size = 4096*. Prueba con Chrome o Edge en un PC. Para jugar online desde la web, súbelo a tu servidor
-(apartado 5.4b).
+### 1.1 Build web (navegador) paso a paso, Unity 6.3
+1. **Usa el proyecto con tu `server_default.json`** (el zip personal, que lleva `Assets/HernaniRacing/Resources/HernaniNet/server_default.json`).
+   Así la web ya trae tu servidor y los chavales sólo escriben su nombre. Comprueba que también está `Assets/HernaniRacing/link.xml`.
+2. Si no existe la escena: **Hernani Racing → 1. Crear escena de juego**.
+3. **Hernani Racing → 3. Preparar ajustes para el build web.** Deja puesto lo siguiente
+   (todo está en *Edit → Project Settings → Player → pestaña Web*):
+   * *Publishing Settings → Compression Format* = **Gzip**. Brotli sólo funciona por https y tu servidor va por http.
+   * *Publishing Settings → Decompression Fallback* = desmarcado.
+   * *Publishing Settings → Data Caching* = marcado. La segunda vez el juego carga sin volver a descargar.
+   * *Publishing Settings → Maximum Memory Size* = **4096**.
+   * *Other Settings → Managed Stripping Level* = **Minimal**.
+4. **File → Build Profiles**. En la lista *Platforms* elige **Web** y pulsa **Switch Platform**. La primera vez tarda: Unity
+   reimporta las texturas para la web, también la ortofoto. Si en el perfil Web aparece *Texture Compression*, déjalo en **DXT**
+   (el de los PC). Lo demás, como viene.
+5. Pulsa **Build** y elige una carpeta **vacía** (por ejemplo `HernaniWeb`). Tarda varios minutos. Dentro quedarán `index.html`,
+   `Build/` y `TemplateData/`.
+6. Comprime **esa carpeta** en un ZIP (`HernaniWeb.zip`) y súbela a tu servidor, por ejemplo con WinSCP o con
+   `scp HernaniWeb.zip usuario@194.164.164.15:` (en PowerShell de Windows también existe `scp`).
+7. En el servidor: `cd HernaniRacing/Server && sudo ./install-web.sh ~/HernaniWeb.zip`
+8. Abre **http://IP-del-servidor:8080** en Chrome o Edge (en un PC). La primera carga descarga más de 100 MB (con *Data Caching*, sólo la primera vez).
+
+Si un build web falla o se queda en negro: mira la consola del navegador (F12). Si cayeran los coches al vacío, desmarca
+*Other Settings → Strip Engine Code*. Más detalles del servidor web en el apartado 5.4b.
 
 ---
 
@@ -213,6 +250,7 @@ Memory*, *Maximum Memory Size = 4096*. Prueba con Chrome o Edge en un PC. Para j
 | Zoom del mapa (circuito, 5 km, 2 km, 1 km, 500 m, 200 m, 100 m) | N | Cruceta ↑ / Back |
 | Vista trasera (mantener) | B | LB / L1 |
 | Mostrar / ocultar flechas del suelo | F | Cruceta ↓ |
+| Suelo: colores / ortofoto | O | Cruceta ← |
 
 ### Paseo libre
 * Sin vueltas ni rivales: puedes ir por cualquier calle del área (≈ 10 × 7 km, de Martutene a Ugaldetxo).
@@ -302,8 +340,10 @@ python osm_traffic.py --refresh                    # solo vuelve a descargar y a
 python build_cars.py                               # vuelve a generar los coches (sólo necesita numpy)
 python preview_cars.py furgoneta,suv vista.png     # dibuja los coches en una imagen (necesita pillow)
 python preview_map.py                              # vuelve a dibujar Docs/mapa_circuitos.png
+python build_ortho.py                              # ortofoto b5m 2025 a 0,5 m/px (70 imágenes, ~55 MB; sólo necesita pillow)
+python build_ortho.py --layer orto2024 --res 1.0   # otro año u otra resolución
 ```
-También desde Unity: **Hernani Racing → 3. Regenerar datos geográficos (Python)**.
+También desde Unity: **Hernani Racing → 4. Regenerar datos geográficos (Python)**.
 Las descargas se guardan en `DataPipeline/cache/`. El MDT LiDAR de 1 m de geoEuskadi se puede descargar en
 <https://www.geo.euskadi.eus/lidar/DatosDescarga/> (`MDT_LIDAR_2017_ETRS89`).
 
@@ -315,6 +355,7 @@ Las descargas se guardan en `DataPipeline/cache/`. El MDT LiDAR de 1 m de geoEus
 Assets/HernaniRacing/
   Resources/HernaniData/    meta.json, roads.json (con sentidos/señales OSM), buildings.json, scenery.json, heightmap.bytes
   Resources/HernaniCars/    cars.json + un JSON por coche (malla, colores, ruedas y física)
+  Resources/HernaniOrtho/   Ortofoto b5m 2025: orto_<x>_<z>.jpg (2048 px = 1 km, 0,5 m/px) y ortho.json
   Scripts/Runtime/
     GameBootstrap.cs        Punto de entrada: cámara, sol, niebla, carga y flujo del juego
     MainMenu.cs             Menús: presentación con resúmenes, pantalla de coche y navegación entre pantallas
@@ -323,6 +364,8 @@ Assets/HernaniRacing/
     CarStudio.cs            Dibujos 3D de los coches para los menús (render a textura)
     HernaniData.cs          Carga de los JSON (JsonUtility) y del heightmap
     WorldBuilder.cs         Terreno, asfalto pegado al terreno, aceras, puentes, túneles, edificios, río
+    GroundSurface.cs        Suelo con colores u ortofoto (carga progresiva, tecla O)
+    Speedometer.cs          Velocímetro de aguja con lectura digital
     TreeRenderer.cs         Árboles con GPU instancing por bloques
     RoadGraph.cs            Grafo viario: cruces, Dijkstra, búsquedas espaciales
     Circuit.cs              Circuito de 4 cruces: muestreo, trazada, perfil de velocidad, seguimiento
@@ -334,7 +377,7 @@ Assets/HernaniRacing/
     Traffic.cs              Tráfico (TrafficCar) y peatones (Pedestrian)
     MapView.cs              Minimapa real y flechas guía en el suelo
     FreeRoam.cs             Modo paseo libre
-    LowPolyCar.cs           Coches low-poly procedurales y sonido de motor sintetizado
+    LowPolyCar.cs           Coches low-poly procedurales y sonido de motor sintetizado (se apaga al terminar)
     Drivers.cs              Piloto jugador, IA que sigue la trazada, cámara de persecución
     RaceManager.cs          Salida, vueltas, posiciones, HUD, pausa y resultados
     GameInput.cs            Teclado y mando (Input Manager clásico o nuevo Input System)
@@ -352,9 +395,11 @@ Assets/HernaniRacing/
   Plugins/LiteNetLib/       Librería de red UDP (MIT)
   Plugins/WebGL/            HernaniWebSocket.jslib: WebSocket del navegador para la versión web
   Scripts/Editor/
-    HernaniRacingMenu.cs    Menú «Hernani Racing»
+    HernaniRacingMenu.cs    Menú «Hernani Racing» (escena, shaders, ajustes del build web, datos)
+    HernaniOrthoImporter.cs Importación de la ortofoto (crunch, mipmaps, sin repetición)
 DataPipeline/
   build_hernani_data.py     Descarga y procesamiento de b5m, geoEuskadi e IGN (al final llama a osm_traffic)
+  build_ortho.py            Descarga la ortofoto de b5m (WMS) en teselas de 1 km
   osm_traffic.py            Sentidos, carriles, rotondas, semáforos, STOP/ceda y pasos de cebra desde OpenStreetMap
   cargen.py                 Generador de geometría de coches (carrocerías por secciones, lunas, ruedas, faros...)
   build_cars.py             Definición de cada coche (formas, detalles y física) y exportación a JSON
@@ -430,7 +475,7 @@ sudo systemctl disable --now hernani-server   # pararlo y que no arranque más
 ```
 
 ### 5.4 El juego para los amigos (ejecutable de Windows)
-1. En Unity: **File → Build Settings → Windows, Mac, Linux → Target Platform: Windows → Build**, y elige una carpeta vacía.
+1. En Unity 6: **File → Build Profiles → Windows → Switch Platform → Build** (Unity 2022: *File → Build Settings → Windows, Mac, Linux → Build*), y elige una carpeta vacía.
 2. Comprime esa carpeta en un ZIP y pásala a los amigos (Drive, WeTransfer, un pendrive...). No hace falta instalar nada:
    se descomprime y se abre `Hernani Racing.exe` (el nombre depende del *Product Name* del proyecto).
 3. La primera vez Windows puede preguntar por el cortafuegos: pulsa **Permitir acceso**.
@@ -438,10 +483,8 @@ sudo systemctl disable --now hernani-server   # pararlo y que no arranque más
 Cada vez que cambies el juego hay que repartir el ejecutable nuevo a todos: si las versiones no coinciden, no os deja entrar en la misma sala.
 
 ### 5.4b La versión web (navegador) en tu servidor
-1. En Unity: **File → Build Settings → WebGL → Switch Platform**. En *Player Settings → WebGL → Publishing Settings* pon
-   *Compression Format = Gzip*; en *Other Settings*, *Managed Stripping Level = Minimal* y *Maximum Memory Size = 4096*.
-   Después, **Build** en una carpeta vacía (por ejemplo `HernaniWeb`). Usa el proyecto con tu `server_default.json`
-   (el zip personal): así la web ya trae el servidor y los chavales sólo escriben su nombre.
+1. Haz el build web siguiendo el **paso a paso del apartado 1.1** (Unity 6.3: menú *Hernani Racing → 3*, *File → Build Profiles → Web*).
+   Usa el proyecto con tu `server_default.json` (el zip personal): así la web ya trae el servidor y los chavales sólo escriben su nombre.
 2. Sube esa carpeta al servidor (comprimida en ZIP, por ejemplo con WinSCP o `scp HernaniWeb.zip usuario@IP:`).
 3. En el servidor: `cd HernaniRacing/Server && sudo ./install-web.sh ~/HernaniWeb.zip`
 4. Abre **http://IP-del-servidor:8080** en Chrome, Edge o Firefox (en un PC; en móvil el mundo es demasiado grande).
@@ -517,6 +560,8 @@ Si el fichero no existe, en *Opciones de conexión* hay que escribir los datos a
 ## 6. Licencias y atribución
 
 * **b5m** – © Diputación Foral de Gipuzkoa, <https://b5m.gipuzkoa.eus>. Datos abiertos, licencia **CC BY 4.0**.
+  La **ortofoto 2025** (capa `orto2025` del WMS `gipuzkoa_ort_wms`, vuelo dirigido por el Servicio de Información Territorial
+  del Gobierno Vasco) también es de b5m, con licencia **CC BY 4.0**.
 * **geoEuskadi** – © Gobierno Vasco / Eusko Jaurlaritza, <https://www.geo.euskadi.eus>. Datos abiertos, licencia **CC BY 4.0**.
 * **MDT05** – © Instituto Geográfico Nacional (CNIG / IDEE), licencia **CC BY 4.0** (scne.es).
 * **OpenStreetMap** – © OpenStreetMap contributors, licencia **ODbL 1.0** (<https://www.openstreetmap.org/copyright>).
@@ -552,4 +597,4 @@ git push -u origin main
 
 Unity regenera solo `Library/`, `Temp/`, `Logs/` y `UserSettings/`; no se suben.
 El fichero más grande (`heightmap.bytes`, 15 MB) está muy por debajo del límite de GitHub (100 MB): no hace falta Git LFS.
-Datos: © b5m Gipuzkoa, © IGN (MDT05), © OpenStreetMap contributors (ODbL); aforos de tráfico © Diputación Foral de Gipuzkoa / Open Data Euskadi; coches propios (CC0); red LiteNetLib (MIT).
+Datos y ortofoto: © b5m Gipuzkoa, © IGN (MDT05), © OpenStreetMap contributors (ODbL); aforos de tráfico © Diputación Foral de Gipuzkoa / Open Data Euskadi; coches propios (CC0); red LiteNetLib (MIT).

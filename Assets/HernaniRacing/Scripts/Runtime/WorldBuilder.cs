@@ -15,6 +15,7 @@ namespace HernaniRacing
         public Terrain[] tiles;          // teselas de terreno [tz * tilesX + tx]
         public int tilesX, tilesZ;
         public float tileSize;           // metros por tesela
+        public TerrainLayer[] baseLayers; // capas de colores del terreno (hierba, bosque, roca, urbano); ver GroundSurface
         public Transform root;
         public float size;               // lado mayor del área
         public float sizeX, sizeZ;       // área real (x = este, z = norte)
@@ -187,6 +188,7 @@ namespace HernaniRacing
                 MakeLayer("rock", new Color(0.50f, 0.45f, 0.36f), 0.25f, 13),
                 MakeLayer("urban", new Color(0.55f, 0.54f, 0.50f), 0.12f, 17),
             };
+            w.baseLayers = layers;
 
             // máscara urbana global a 4 m a partir de edificios y calles
             const float um = 4f;
@@ -314,8 +316,13 @@ namespace HernaniRacing
             {
                 diffuseTexture = Tex.Noise("terrain_" + key, c, noise, 64, seed),
                 tileSize = new Vector2(6, 6),
-                name = key
+                name = key,
+                smoothness = 0f,
+                metallic = 0f
             };
+#if UNITY_6000_0_OR_NEWER
+            l.smoothnessSource = TerrainLayerSmoothnessSource.Constant;
+#endif
             return l;
         }
 

@@ -88,6 +88,8 @@ namespace HernaniRacing
         {
             if (!open || world == null) return;
             if (pending != null) { var p = pending; pending = null; p(); }
+            // la acción puede haber empezado la carrera o el paseo (y cerrado el mapa): entonces no tocar la cámara
+            if (!open) return;
             if (shownVersion != state.version) UpdateRouteLine();
             var cam = game.MainCamera;
             float k = (GameInput.Fast ? 2.5f : 1f) * orthoSize * 1.2f * Time.unscaledDeltaTime;

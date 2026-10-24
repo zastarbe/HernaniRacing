@@ -78,7 +78,39 @@ namespace HernaniRacing.EditorTools
             Debug.Log("[Hernani Racing] Shaders añadidos a 'Always Included': " + added);
         }
 
-        [MenuItem("Hernani Racing/3. Regenerar datos geográficos (Python)", false, 20)]
+        /// <summary>
+        /// Ajustes recomendados para la versión web (navegador): Gzip (Brotli sólo va por https), 4 GB de memoria máxima,
+        /// stripping mínimo (el terreno se crea por código), caché de datos y la escena en el build.
+        /// </summary>
+        [MenuItem("Hernani Racing/3. Preparar ajustes para el build web", false, 3)]
+        public static void PrepareWeb()
+        {
+            PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Gzip;
+            PlayerSettings.WebGL.decompressionFallback = false;
+            PlayerSettings.WebGL.dataCaching = true;
+            PlayerSettings.WebGL.memoryGrowthMode = WebGLMemoryGrowthMode.Geometric;
+            PlayerSettings.WebGL.maximumMemorySize = 4096;
+            PlayerSettings.SetManagedStrippingLevel(UnityEditor.Build.NamedBuildTarget.WebGL, ManagedStrippingLevel.Minimal);
+            PlayerSettings.runInBackground = true;
+            if (File.Exists(ScenePath))
+            {
+                var list = new List<EditorBuildSettingsScene>(EditorBuildSettings.scenes);
+                if (!list.Exists(s => s.path == ScenePath))
+                {
+                    list.Insert(0, new EditorBuildSettingsScene(ScenePath, true));
+                    EditorBuildSettings.scenes = list.ToArray();
+                }
+            }
+            IncludeShaders();
+            AssetDatabase.SaveAssets();
+            Debug.Log("[Hernani Racing] Ajustes web listos: Gzip, sin fallback, caché de datos, memoria máx. 4096 MB, stripping Minimal.");
+            EditorUtility.DisplayDialog("Hernani Racing", "Ajustes del build web preparados:\n\n" +
+                "• Compression Format: Gzip\n• Decompression Fallback: no\n• Data Caching: sí\n" +
+                "• Maximum Memory Size: 4096 MB\n• Managed Stripping Level: Minimal\n\n" +
+                "Ahora: File → Build Profiles → Web → Switch Platform → Build.", "OK");
+        }
+
+        [MenuItem("Hernani Racing/4. Regenerar datos geográficos (Python)", false, 20)]
         public static void RegenerateData()
         {
             string root = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
@@ -142,7 +174,12 @@ namespace HernaniRacing.EditorTools
         {
             HernaniRacingMenu.IncludeShaders();
             if (report.summary.platform == BuildTarget.WebGL)
-                Debug.Log("[Hernani Racing] WebGL: el modo online (UDP) no funciona en el navegador; carrera y paseo libre sí.");
+            {
+                if (PlayerSettings.WebGL.compressionFormat == WebGLCompressionFormat.Brotli)
+                    Debug.LogWarning("[Hernani Racing] Web: Brotli sólo funciona por https. Para tu servidor (http) usa Gzip: menú Hernani Racing > 3. Preparar ajustes para el build web.");
+                if (PlayerSettings.WebGL.maximumMemorySize < 4096)
+                    Debug.LogWarning("[Hernani Racing] Web: Maximum Memory Size = " + PlayerSettings.WebGL.maximumMemorySize + " MB; se recomienda 4096 (menú Hernani Racing > 3).");
+            }
         }
     }
 }

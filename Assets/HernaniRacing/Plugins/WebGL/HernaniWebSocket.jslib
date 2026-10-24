@@ -56,5 +56,8 @@ var HernaniWebSocket = {
     if (ws) { try { ws.close(1000); } catch (e) {} }
   }
 };
-autoAddDeps(HernaniWebSocket, '$HRWS');
+// dependencias explícitas (vale para el Emscripten de Unity 2021/2022 y de Unity 6)
+['HRWS_Connect', 'HRWS_State', 'HRWS_CloseCode', 'HRWS_Send', 'HRWS_Recv', 'HRWS_Close'].forEach(function (f) {
+  HernaniWebSocket[f + '__deps'] = ['$HRWS'];
+});
 mergeInto(LibraryManager.library, HernaniWebSocket);

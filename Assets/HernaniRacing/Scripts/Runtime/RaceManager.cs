@@ -448,6 +448,9 @@ namespace HernaniRacing
                 ai.ResetTracking();
                 ai.StartCoolDown(7f);
                 r.ai = ai;
+                // carrera terminada: se apaga el motor (el sonido se va apagando a medida que el coche se para)
+                var ea = r.car.GetComponent<EngineAudio>();
+                if (ea != null) ea.ShutDown();
             }
             else if (r.ai != null) r.ai.StartCoolDown(7f);
         }
@@ -694,13 +697,9 @@ namespace HernaniRacing
             GUI.Label(new Rect(W / 2 - gw / 2, 82, gw, 24),
                 "Altitud " + pp.y.ToString("F0") + " m  ·  Pendiente " + grade.ToString("+0;-0") + "%  ·  UTM " + utm.x.ToString("F0") + " / " + utm.y.ToString("F0"), cs3);
 
-            // ---- abajo derecha: velocímetro
+            // ---- abajo derecha: velocímetro de aguja + digital
             float kmh = Mathf.Abs(player.car.ForwardSpeed) * 3.6f;
-            GUI.Box(new Rect(W - 260, H - 150, 240, 130), GUIContent.none, box);
-            GUI.Label(new Rect(W - 250, H - 150, 160, 90), kmh.ToString("0"), big);
-            GUI.Label(new Rect(W - 85, H - 118, 70, 40), "km/h", label);
-            // barra de velocidad
-            GUI.DrawTexture(new Rect(W - 245, H - 52, 210 * Mathf.Clamp01(kmh / 160f), 12), Tex.Solid(Color.Lerp(new Color(0.3f, 0.9f, 0.3f), new Color(1f, 0.25f, 0.2f), kmh / 160f)));
+            Speedometer.Draw(new Rect(W - 300, H - 300, 280, 280), kmh, player.car.maxSpeed * 3.6f, player.car.Reversing && player.car.ForwardSpeed < -0.5f);
 
             // ---- clasificación en vivo
             var order = racers.OrderBy(r => r.position).ToList();

@@ -240,9 +240,23 @@ namespace HernaniRacing
         static readonly Vector3[] offsets = { new Vector3(0, 2.6f, -6.8f), new Vector3(0, 4.2f, -11f), new Vector3(0, 1.25f, 0.3f) };
         static readonly RaycastHit[] hits = new RaycastHit[8];
 
+        Camera cam;
+
+        /// <summary>Cámara de persecución siempre en perspectiva (el mapa de selección la deja cenital/ortográfica).</summary>
+        void EnsurePerspective()
+        {
+            if (cam == null) cam = GetComponent<Camera>();
+            if (cam == null) return;
+            if (cam.orthographic) cam.orthographic = false;
+            if (Mathf.Abs(cam.fieldOfView - 62f) > 0.01f) cam.fieldOfView = 62f;
+            if (cam.nearClipPlane > 0.3f) cam.nearClipPlane = 0.2f;
+            if (cam.farClipPlane < 4000f) cam.farClipPlane = 4000f;
+        }
+
         void LateUpdate()
         {
             if (target == null) return;
+            EnsurePerspective();
             if (GameInput.CameraPressed) mode = (mode + 1) % offsets.Length;
             RearView = GameInput.RearView;
             var rb = target.GetComponent<Rigidbody>();
@@ -325,6 +339,7 @@ namespace HernaniRacing
         public void Snap()
         {
             if (target == null) return;
+            EnsurePerspective();
             facing = 1f;
             smoothFwd = target.forward; smoothFwd.y = 0;
             if (smoothFwd.sqrMagnitude < 1e-4f) smoothFwd = Vector3.forward;

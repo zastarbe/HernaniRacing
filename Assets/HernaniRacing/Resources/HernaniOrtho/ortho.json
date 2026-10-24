@@ -1,0 +1,11 @@
+{
+ "source": "b5m - Diputación Foral de Gipuzkoa (WMS gipuzkoa_ort_wms)",
+ "layer": "orto2025",
+ "metersPerPixel": 0.5,
+ "pixels": 2048,
+ "tileMeters": 1024.0,
+ "tilesX": 10,
+ "tilesZ": 7,
+ "license": "CC BY 4.0 © Diputación Foral de Gipuzkoa (b5m) / Gobierno Vasco",
+ "generated": "2026-10-24T08:35:05"
+}

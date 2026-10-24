@@ -51,6 +51,7 @@ namespace HernaniRacing
             loadingProgress = 1f;
             yield return null;
             new MapView(world, null);   // plano base (para los resúmenes del menú y el minimapa)
+            GroundSurface.Create(gameObject, world);   // colores u ortofoto (según la última elección)
 
             menu = gameObject.AddComponent<MainMenu>();
             menu.game = this;

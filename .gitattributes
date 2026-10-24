@@ -8,3 +8,5 @@
 *.png binary
 *.glb binary
 *.fbx binary
+*.jpg binary
+*.jpeg binary

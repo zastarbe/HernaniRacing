@@ -294,6 +294,7 @@ namespace HernaniRacing
             if (GUI.Button(br[1], labels[1], midBtn)) Go(MenuScreen.Free);
             if (GUI.Button(br[2], labels[2], midBtn)) Go(MenuScreen.Online);
             if (GUI.Button(br[3], labels[3], btn)) pending = Quit;
+            SurfaceChooser(wide ? new Rect(60, 620, 420, 92) : new Rect(60, 300, Mathf.Min(560f, W - 120f), 92));
             if (wide)
             {
                 GUI.Label(new Rect(64, 552, 420, 60), state.CircuitOk ? "Carrera de " + state.settings.laps + " vuelta" + (state.settings.laps == 1 ? "" : "s") + " en " + state.CircuitName + "." :
@@ -308,7 +309,25 @@ namespace HernaniRacing
             DrawCards(x0, y, cardW, cardH, gap, false);
 
             GUI.Label(new Rect(60, 1080 - 34, W - 120, 24),
-                "Datos: © b5m Gipuzkoa · © geoEuskadi · © IGN (MDT05) · © OpenStreetMap contributors (ODbL) · tráfico: aforos DFG / Open Data Euskadi · coches propios (CC0)", small);
+                "Datos y ortofoto: © b5m Gipuzkoa (CC BY) · © geoEuskadi · © IGN (MDT05) · © OpenStreetMap contributors (ODbL) · tráfico: aforos DFG / Open Data Euskadi · coches propios (CC0)", small);
+        }
+
+        /// <summary>Suelo: los colores de siempre o la ortofoto real de b5m (también con la tecla O en el juego).</summary>
+        void SurfaceChooser(Rect r)
+        {
+            var gs = GroundSurface.Instance;
+            if (gs == null) return;
+            GUI.Box(r, GUIContent.none, panel);
+            GUI.Label(new Rect(r.x + 14, r.y + 6, r.width - 28, 26), "SUPERFICIE DEL SUELO", h2);
+            float bw = (r.width - 28 - 10) / 2f;
+            bool ortho = gs.Current == GroundSurface.Mode.Ortho;
+            if (GUI.Button(new Rect(r.x + 14, r.y + 38, bw, 40), (ortho ? "" : "● ") + "Colores", ortho ? btn : onBtn))
+                pending = () => gs.Set(GroundSurface.Mode.Colors, true);
+            GUI.enabled = gs.Available;
+            if (GUI.Button(new Rect(r.x + 24 + bw, r.y + 38, bw, 40), (ortho ? "● " : "") + gs.OrthoLabel, ortho ? onBtn : btn))
+                pending = () => gs.Set(GroundSurface.Mode.Ortho, true);
+            GUI.enabled = true;
+            GUI.Label(new Rect(r.x + 14, r.yMax + 2, r.width - 28, 24), gs.Available ? "Foto aérea real de b5m (0,5 m por píxel) · tecla O en el juego" : "Falta la ortofoto: DataPipeline/build_ortho.py", small);
         }
 
         void Quit()
