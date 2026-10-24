@@ -11,6 +11,12 @@ laterales quedan abiertas y la calzada va pegada al terreno real.
 También hay un modo **Paseo libre**: conduces por todo Hernani sin carrera, con tráfico y peatones que respetan
 las señales.
 
+## Novedades (versión 12): desinstalador del servidor
+* **`Server/uninstall.sh`** borra del servidor Ubuntu todo lo que instalaron `install.sh` e `install-web.sh`: el servicio,
+  el programa, la configuración (con la contraseña), el juego web, el usuario `hernani`, las reglas de ufw y los restos de la compilación.
+  Pregunta antes de borrar .NET 8 y la carpeta del proyecto (`--todo` lo borra todo sin preguntar). Ver la sección 5.9.
+* El juego no cambia respecto a la versión 11: los ejecutables y builds web de la v11 siguen siendo compatibles.
+
 ## Novedades (versión 11): ortofoto, velocímetro de aguja y Unity 6.3
 * **Suelo con la ortofoto real.** En la presentación, *SUPERFICIE DEL SUELO*: **Colores** (lo de siempre) u **Ortofoto 2025**.
   Es la foto aérea más reciente de **b5m** (vuelo de julio y agosto de 2025, píxel de 15 cm), guardada a **0,5 m por píxel**: una imagen
@@ -411,6 +417,7 @@ Server/
   server.example.json       Ejemplo de configuración
   HernaniServer/            Servidor multijugador (.NET 8, consola) + servidor web/WebSocket para la versión web
   install-web.sh            Sube el build WebGL al servidor (/srv/hernani-web)
+  uninstall.sh              Desinstala el servidor y la versión web sin dejar rastro
 ```
 
 Todo se genera en tiempo de ejecución (mallas, materiales, texturas de señales y sonido). Los coches se leen de JSON, porque Unity no
@@ -448,6 +455,8 @@ Al terminar muestra **la IP, el puerto y la contraseña**. Apúntalos: son lo qu
 > Si el servidor está en casa, redirige en el router esos puertos hacia la IP local del servidor.
 
 **Actualizar** a una versión nueva: `cd HernaniRacing && git pull && cd Server && sudo ./install.sh` (se conserva la configuración).
+
+**Desinstalar**: `sudo ./uninstall.sh` (ver 5.9).
 
 ### 5.3 Configuración (`/etc/hernani-server/server.json`)
 ```
@@ -554,6 +563,34 @@ El juego lee el servidor por defecto de `Assets/HernaniRacing/Resources/HernaniN
 Ese fichero va dentro del ejecutable (y de la página web) que repartes, pero **no se sube a GitHub** (está en `.gitignore`), porque el repositorio es público.
 Hay un ejemplo en `Server/server_default.example.json`: cópialo a esa carpeta con ese nombre y rellénalo.
 Si el fichero no existe, en *Opciones de conexión* hay que escribir los datos a mano.
+
+### 5.9 Desinstalar el servidor (sin dejar rastro)
+Para **sólo parar la web** sin quitar nada: pon `"webPort": 0` en `/etc/hernani-server/server.json` y `sudo systemctl restart hernani-server`.
+Para **parar todo** temporalmente: `sudo systemctl disable --now hernani-server` (se vuelve a encender con `enable --now`).
+
+Para **quitarlo todo**:
+```
+cd HernaniRacing && git pull && cd Server
+sudo ./uninstall.sh          # pregunta antes de borrar .NET 8 y la carpeta del proyecto
+sudo ./uninstall.sh --todo   # lo borra todo sin preguntar
+```
+El script borra:
+1. el servicio `hernani-server` (lo para, lo desactiva y quita su fichero de systemd);
+2. `/opt/hernani-server` (programa), `/etc/hernani-server` (configuración y contraseña) y `/srv/hernani-web` (juego web);
+3. el usuario y el grupo `hernani`;
+4. las reglas de **ufw** que creó el instalador (7777/udp y 8080/tcp);
+5. los restos de la compilación (`/root/.nuget`, `/root/.dotnet`…);
+6. *(pregunta)* **.NET 8**: di que no si lo usas para otras cosas;
+7. *(pregunta)* la carpeta `~/HernaniRacing` y el `~/HernaniWeb.zip` que subiste.
+
+Queda a mano: borrar en el **panel del proveedor** las reglas de 7777 UDP y 8080 TCP y, si quieres, el registro del sistema
+(`sudo journalctl --rotate && sudo journalctl --vacuum-time=1s`; **ojo**, borra el registro de todo el sistema, no sólo el del juego).
+`unzip`, si lo instaló `install-web.sh`, se puede quitar con `sudo apt purge unzip` (es un paquete común; no estorba).
+
+Comprobación final (no debe mostrar ninguna carpeta y el servicio debe salir como no encontrado):
+```
+ls -d /opt/hernani-server /etc/hernani-server /srv/hernani-web 2>/dev/null; systemctl status hernani-server 2>&1 | head -1
+```
 
 ---
 
