@@ -5,6 +5,8 @@
 set -euo pipefail
 
 PORT_DEFAULT=7777
+WEBPORT_DEFAULT=8080
+WEB_DIR=/srv/hernani-web
 APP_DIR=/opt/hernani-server
 CFG_DIR=/etc/hernani-server
 CFG=$CFG_DIR/server.json
@@ -55,13 +57,19 @@ if [ ! -f $CFG ]; then
   "serverName": "Servidor Hernani Racing",
   "motd": "¡Bienvenidos! Conducid con cuidado por Hernani.",
   "maxPlayers": 64,
-  "maxRooms": 16
+  "maxRooms": 16,
+  "webPort": $WEBPORT_DEFAULT,
+  "webRoot": "$WEB_DIR"
 }
 JSON
 fi
+# carpeta de la versión web (el build WebGL se instala con install-web.sh)
+mkdir -p $WEB_DIR
+chmod 755 $WEB_DIR
 chown -R hernani:hernani $CFG_DIR
 chmod 640 $CFG
 PORT=$(grep -o '"port"[^0-9]*[0-9]*' $CFG | grep -o '[0-9]*$' || echo $PORT_DEFAULT)
+WEBPORT=$(grep -o '"webPort"[^0-9]*[0-9]*' $CFG | grep -o '[0-9]*$' || echo $WEBPORT_DEFAULT)
 
 # 4) Servicio systemd (arranca solo al encender el servidor y se reinicia si falla)
 cat > /etc/systemd/system/$SVC.service <<UNIT
@@ -93,6 +101,9 @@ systemctl restart $SVC
 # 5) Cortafuegos de Ubuntu (si está activo)
 if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
   ufw allow $PORT/udp comment "Hernani Racing" >/dev/null && echo "-> ufw: abierto el puerto $PORT/udp"
+  if [ "$WEBPORT" != "0" ]; then
+    ufw allow $WEBPORT/tcp comment "Hernani Racing web" >/dev/null && echo "-> ufw: abierto el puerto $WEBPORT/tcp (versión web)"
+  fi
 fi
 
 sleep 2
@@ -104,6 +115,13 @@ echo "================================================================"
 echo " Servidor instalado y en marcha."
 echo "   Dirección para el juego:  $IP"
 echo "   Puerto UDP:               $PORT"
+if [ "$WEBPORT" != "0" ]; then
+echo "   Versión web (navegador):  http://$IP:$WEBPORT   (puerto TCP $WEBPORT)"
+if [ ! -f $WEB_DIR/index.html ]; then
+echo "     -> aún sin juego web: haz el build WebGL en Unity y ejecuta"
+echo "        sudo ./install-web.sh carpeta-o-zip-del-build"
+fi
+fi
 if [ -n "$NEW_PASS" ]; then
 echo "   Contraseña (nueva):       $NEW_PASS"
 else
@@ -111,7 +129,8 @@ echo "   Contraseña:               la de $CFG"
 fi
 echo
 echo " IMPORTANTE: si tu proveedor (OVH, Hetzner, AWS, Oracle...) tiene un"
-echo " cortafuegos en su panel web, abre allí también el puerto $PORT UDP."
+echo " cortafuegos en su panel web, abre allí también el puerto $PORT UDP"
+echo " y, para la versión web, el puerto $WEBPORT TCP."
 echo
 echo " Ver el registro:   sudo journalctl -u $SVC -f"
 echo " Cambiar opciones:  sudo nano $CFG  y luego  sudo systemctl restart $SVC"

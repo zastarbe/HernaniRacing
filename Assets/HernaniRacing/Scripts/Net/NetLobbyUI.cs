@@ -158,7 +158,7 @@ namespace HernaniRacing
             GUILayout.Label("Servidor (IP o dominio)", txt);
             net.customHost = GUILayout.TextField(net.customHost ?? "", 80, field, GUILayout.Height(38));
             GUILayout.BeginHorizontal();
-            GUILayout.Label("Puerto UDP", txt, GUILayout.Width(130));
+            GUILayout.Label(NetSession.IsWebBuild ? "Puerto web" : "Puerto UDP", txt, GUILayout.Width(130));
             portText = GUILayout.TextField(portText ?? "", 6, field, GUILayout.Width(110), GUILayout.Height(38));
             GUILayout.EndHorizontal();
             int p;

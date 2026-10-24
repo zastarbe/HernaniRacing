@@ -2,5 +2,6 @@
   "name": "Servidor Hernani Racing",
   "host": "IP-O-DOMINIO-DE-TU-SERVIDOR",
   "port": 7777,
-  "password": "LA-CONTRASEÑA-DEL-SERVIDOR"
+  "password": "LA-CONTRASEÑA-DEL-SERVIDOR",
+  "webPort": 8080
 }

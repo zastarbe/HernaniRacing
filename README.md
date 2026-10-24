@@ -11,6 +11,18 @@ laterales quedan abiertas y la calzada va pegada al terreno real.
 También hay un modo **Paseo libre**: conduces por todo Hernani sin carrera, con tráfico y peatones que respetan
 las señales.
 
+## Novedades (versión 10): online también desde el navegador
+* **La versión web ya juega online**, en las **mismas salas** que los de PC: unos desde el .exe y otros desde Chrome/Edge/Firefox,
+  todos juntos (carreras y paseo libre, hasta 8 por sala, con tráfico y peatones).
+* El navegador no permite UDP, así que la versión web se conecta por **WebSocket**. El servidor de Ubuntu acepta los dos tipos de
+  conexión a la vez: UDP 7777 para el PC y **TCP 8080** para la web.
+* **El propio servidor sirve la página del juego**: basta con abrir **http://IP-del-servidor:8080** (sin dominio ni certificado).
+  Para subir el juego web: haz el build WebGL en Unity y en el servidor ejecuta `sudo ./install-web.sh carpeta-o-zip-del-build`.
+* Como en PC, el servidor por defecto viene configurado y sólo hay que escribir el nombre. Ojo: en la versión web los datos de
+  conexión (también la contraseña) van dentro de los archivos de la página, así que quien tenga el enlace puede entrar.
+* Los ejecutables de la v9 siguen sirviendo con el servidor nuevo (el protocolo no cambia). Hay que **actualizar el servidor** una vez
+  (ver 5.2) y abrir el **puerto 8080 TCP** en el panel del proveedor.
+
 ## Novedades (versión 9): llegada justa, adelantamientos con cabeza y builds arreglados
 * **Clasificación fijada en la meta.** El puesto y el tiempo de cada coche son los del momento exacto en que cruza la línea
   (interpolado dentro del fotograma). Los que ya han llegado van siempre delante, ordenados por su tiempo: ningún rival puede
@@ -31,7 +43,7 @@ las señales.
 * **Build WebGL: los coches ya no caen al vacío.** Con *Strip Engine Code* Unity eliminaba el colisionador del terreno
   (`TerrainCollider`), que sólo se crea en tiempo de ejecución. Ahora se añade explícitamente y `Assets/HernaniRacing/link.xml` protege
   los módulos de terreno y física. Además el minimapa detallado ya no usa hilos (WebGL no los tiene).
-  En el navegador **no hay modo online** (el navegador no permite UDP); carrera y paseo libre funcionan igual.
+  (En la v9 el navegador aún no tenía modo online; desde la v10 sí, ver arriba.)
 
 ## Novedades (versión 8): coches nuevos, más tráfico y zoom del mapa
 * **Coches nuevos, mucho más detallados** (≈ 20 000–32 000 triángulos cada uno, con versión ligera automática para cuando se ven de lejos).
@@ -146,8 +158,9 @@ y vuelve a hacer el build.
 **Build WebGL (navegador):** *File → Build Settings → WebGL → Switch Platform → Build*. Copia también
 `Assets/HernaniRacing/link.xml` (va dentro de la carpeta `HernaniRacing`). Recomendado en *Player Settings → WebGL → Other
 Settings*: *Managed Stripping Level = Minimal*; si aun así cayeran los coches, desmarca *Strip Engine Code*. El mundo es
-grande: en *Publishing Settings* pon *Compression Format = Gzip* (o *Disabled* si tu servidor web no la sirve) y prueba
-con Chrome o Edge en un PC. El modo online no está disponible en el navegador.
+grande: en *Publishing Settings* pon *Compression Format = **Gzip*** (Brotli sólo funciona por https) y, en *Other Settings →
+Memory*, *Maximum Memory Size = 4096*. Prueba con Chrome o Edge en un PC. Para jugar online desde la web, súbelo a tu servidor
+(apartado 5.4b).
 
 ---
 
@@ -330,11 +343,14 @@ Assets/HernaniRacing/
   Scripts/Net/
     Shared/NetProtocol.cs   Protocolo de red (compartido con el servidor): mensajes, sala, estados de coche/tráfico/peatón
     Shared/NetClientCore.cs Cliente de red sin Unity: conexión, salas, reloj común, envío/recepción
+    Shared/NetTransport.cs  Transporte: UDP (LiteNetLib) en PC; interfaz común con el WebSocket
+    WebSocketTransport.cs   Transporte WebSocket de la versión web (usa Plugins/WebGL/HernaniWebSocket.jslib)
     NetSession.cs           Conexión dentro del juego, perfil (nombre, coche, color) y arranque de partidas online
     NetLobbyUI.cs           Pantalla «JUGAR ONLINE»: nombre, opciones de conexión, salas y sala
     NetWorldSync.cs         Sincroniza coches, tráfico y peatones durante la partida
     NetProxies.cs           Coches, tráfico y peatones remotos (interpolación)
   Plugins/LiteNetLib/       Librería de red UDP (MIT)
+  Plugins/WebGL/            HernaniWebSocket.jslib: WebSocket del navegador para la versión web
   Scripts/Editor/
     HernaniRacingMenu.cs    Menú «Hernani Racing»
 DataPipeline/
@@ -348,7 +364,8 @@ DataPipeline/
 Server/
   install.sh                Instalador del servidor para Ubuntu (systemd)
   server.example.json       Ejemplo de configuración
-  HernaniServer/            Servidor multijugador (.NET 8, consola)
+  HernaniServer/            Servidor multijugador (.NET 8, consola) + servidor web/WebSocket para la versión web
+  install-web.sh            Sube el build WebGL al servidor (/srv/hernani-web)
 ```
 
 Todo se genera en tiempo de ejecución (mallas, materiales, texturas de señales y sonido). Los coches se leen de JSON, porque Unity no
@@ -360,7 +377,7 @@ importa GLB sin paquetes extra. No hace falta instalar ningún paquete adicional
 
 ### 5.1 Qué hace falta
 * Un **servidor Ubuntu** (20.04, 22.04 o 24.04, x64 o ARM) con **IP pública**. Sobra con el más pequeño: 1 CPU y 1 GB de RAM.
-* Que el **puerto 7777 UDP** esté abierto hacia internet.
+* Que el **puerto 7777 UDP** esté abierto hacia internet (juego de PC) y, para la versión web, el **puerto 8080 TCP**.
 * Que todos los jugadores tengan **la misma versión del juego**. Con otra versión el servidor no deja entrar en la sala de los demás.
 
 ### 5.2 Instalar el servidor (una sola vez, unos 3 minutos)
@@ -376,13 +393,14 @@ El script:
 2. compila el servidor y lo copia en `/opt/hernani-server`;
 3. crea el usuario sin privilegios `hernani` y la configuración `/etc/hernani-server/server.json` con una **contraseña aleatoria**;
 4. lo instala como **servicio `hernani-server`**, que arranca solo al encender la máquina y se reinicia si falla;
-5. abre el puerto en **ufw** si ufw está activo.
+5. abre los puertos en **ufw** si ufw está activo (7777/udp y 8080/tcp);
+6. prepara la carpeta de la versión web, `/srv/hernani-web` (el juego web se sube con `install-web.sh`, ver 5.4b).
 
 Al terminar muestra **la IP, el puerto y la contraseña**. Apúntalos: son lo que tendrán que escribir los chavales.
 
 > **Cortafuegos del proveedor.** Si el servidor está en OVH, Hetzner, AWS, Google Cloud, Oracle, Azure, etc., abre también
-> **7777 / UDP** en el panel web del proveedor (Security group, Firewall o Network rules). Es el fallo más habitual.
-> Si el servidor está en casa, redirige en el router el puerto 7777 UDP hacia la IP local del servidor.
+> **7777 / UDP** y **8080 / TCP** en el panel web del proveedor (Security group, Firewall o Network rules). Es el fallo más habitual.
+> Si el servidor está en casa, redirige en el router esos puertos hacia la IP local del servidor.
 
 **Actualizar** a una versión nueva: `cd HernaniRacing && git pull && cd Server && sudo ./install.sh` (se conserva la configuración).
 
@@ -394,9 +412,13 @@ Al terminar muestra **la IP, el puerto y la contraseña**. Apúntalos: son lo qu
   "serverName": "Servidor Hernani Racing",
   "motd": "¡Bienvenidos! Conducid con cuidado por Hernani.",
   "maxPlayers": 64,
-  "maxRooms": 16
+  "maxRooms": 16,
+  "webPort": 8080,
+  "webRoot": "/srv/hernani-web"
 }
 ```
+`webPort` es el puerto TCP de la versión web (página + WebSocket en `/ws`; `0` la desactiva) y `webRoot` la carpeta del build WebGL.
+Si tu `server.json` es de antes y no los tiene, se usan esos valores por defecto.
 Después de cambiarla: `sudo systemctl restart hernani-server`. Hay un ejemplo en `Server/server.example.json`.
 
 Comandos útiles:
@@ -414,6 +436,20 @@ sudo systemctl disable --now hernani-server   # pararlo y que no arranque más
 3. La primera vez Windows puede preguntar por el cortafuegos: pulsa **Permitir acceso**.
 
 Cada vez que cambies el juego hay que repartir el ejecutable nuevo a todos: si las versiones no coinciden, no os deja entrar en la misma sala.
+
+### 5.4b La versión web (navegador) en tu servidor
+1. En Unity: **File → Build Settings → WebGL → Switch Platform**. En *Player Settings → WebGL → Publishing Settings* pon
+   *Compression Format = Gzip*; en *Other Settings*, *Managed Stripping Level = Minimal* y *Maximum Memory Size = 4096*.
+   Después, **Build** en una carpeta vacía (por ejemplo `HernaniWeb`). Usa el proyecto con tu `server_default.json`
+   (el zip personal): así la web ya trae el servidor y los chavales sólo escriben su nombre.
+2. Sube esa carpeta al servidor (comprimida en ZIP, por ejemplo con WinSCP o `scp HernaniWeb.zip usuario@IP:`).
+3. En el servidor: `cd HernaniRacing/Server && sudo ./install-web.sh ~/HernaniWeb.zip`
+4. Abre **http://IP-del-servidor:8080** en Chrome, Edge o Firefox (en un PC; en móvil el mundo es demasiado grande).
+   La primera carga descarga el juego (decenas de MB) y tarda un poco.
+
+Cuando cambies el juego, repite el build y el paso 3. Para que web y PC jueguen juntos, los dos tienen que ser de la misma versión.
+La web va por `http://` (sin candado): para `https://` haría falta un dominio y un certificado, y entonces se usa `wss://`
+(se puede poner la URL completa en `server_default.json` → `"webUrl": "wss://tu-dominio/ws"`).
 
 ### 5.5 Cómo se juega online
 1. En la presentación pulsa **JUGAR ONLINE**.
@@ -439,6 +475,8 @@ Notas:
 | Mensaje | Causa probable |
 |---|---|
 | *El servidor no responde. ¿Está encendido y con el puerto UDP abierto?* | Puerto 7777 UDP cerrado (ufw, panel del proveedor o router), IP mal escrita o servicio parado |
+| *(web)* *El servidor no responde. ¿Está encendido y con el puerto web (TCP) abierto?* | Puerto 8080 TCP cerrado, o servidor sin actualizar a la v10 (`git pull` + `sudo ./install.sh`) |
+| *(web)* La página no carga o se queda en negro | Build con Brotli (ponlo en Gzip), falta `sudo ./install-web.sh`, o poca memoria: prueba Chrome/Edge en un PC y mira la consola (F12) |
 | *Contraseña del servidor incorrecta.* | Mira `password` en `/etc/hernani-server/server.json` |
 | *Tu juego es más antiguo que el servidor* / *El servidor es más antiguo que tu juego* | Actualiza el juego o el servidor (`git pull` + `sudo ./install.sh`) |
 | *Tu juego tiene otra versión de los datos de Hernani* | Alguien tiene un ejecutable de otra versión: repartid el mismo |
@@ -447,6 +485,10 @@ Notas:
 ### 5.7 Cómo funciona por dentro
 * Red **UDP** con **LiteNetLib** (MIT), incluida como código fuente en `Assets/HernaniRacing/Plugins/LiteNetLib`. Funciona igual en PC, Android e iOS,
   así que sirve para la futura versión móvil.
+* **Versión web:** el navegador no permite UDP, así que se conecta por **WebSocket** (`ws://servidor:8080/ws`, plugin
+  `Plugins/WebGL/HernaniWebSocket.jslib` + `Net/WebSocketTransport.cs`). Los mensajes son exactamente los mismos bytes; el servidor
+  (Kestrel integrado, que además sirve la página) mete a los jugadores web y UDP en las mismas salas. Si la conexión web va lenta,
+  se descartan posiciones viejas, nunca los mensajes importantes.
 * El servidor (`Server/HernaniServer`, .NET 8, sin Unity) gestiona salas, líder, reloj común y la hora de salida, y **reenvía** las posiciones.
   No simula física, por eso consume tan poco.
 * Cada PC simula su propio coche con la física completa y envía su estado 20 veces por segundo. Los coches de los demás se
@@ -461,10 +503,12 @@ El juego lee el servidor por defecto de `Assets/HernaniRacing/Resources/HernaniN
   "name": "Servidor Hernani Racing",
   "host": "IP-O-DOMINIO-DE-TU-SERVIDOR",
   "port": 7777,
-  "password": "LA-CONTRASEÑA-DEL-SERVIDOR"
+  "password": "LA-CONTRASEÑA-DEL-SERVIDOR",
+  "webPort": 8080
 }
 ```
-Ese fichero va dentro del ejecutable que repartes, pero **no se sube a GitHub** (está en `.gitignore`), porque el repositorio es público.
+`webPort` lo usa la versión web (WebSocket `ws://host:8080/ws`); opcionalmente `"webUrl": "wss://..."` fuerza otra URL.
+Ese fichero va dentro del ejecutable (y de la página web) que repartes, pero **no se sube a GitHub** (está en `.gitignore`), porque el repositorio es público.
 Hay un ejemplo en `Server/server_default.example.json`: cópialo a esa carpeta con ese nombre y rellénalo.
 Si el fichero no existe, en *Opciones de conexión* hay que escribir los datos a mano.
 

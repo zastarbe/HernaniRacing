@@ -17,7 +17,8 @@ namespace HernaniRacing.Server
                 else if (args[i] == "--help" || args[i] == "-h")
                 {
                     Console.WriteLine("hernani-server [--config server.json]");
-                    Console.WriteLine("  Servidor de Hernani Racing. Abre el puerto UDP indicado en server.json (por defecto " + NetProto.DefaultPort + ").");
+                    Console.WriteLine("  Servidor de Hernani Racing. Abre el puerto UDP indicado en server.json (por defecto " + NetProto.DefaultPort + ")");
+                    Console.WriteLine("  y el puerto web TCP (por defecto " + NetProto.DefaultWebPort + ") para la versión web: página del juego + WebSocket.");
                     return 0;
                 }
             }

@@ -14,6 +14,10 @@
     <NoWarn>CS1591;CS0618</NoWarn>
   </PropertyGroup>
   <ItemGroup>
+    <!-- servidor web integrado (Kestrel) para la versión web: página del juego + WebSocket -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
     <!-- El protocolo es el mismo fichero que usa el juego -->
     <Compile Include="../../Assets/HernaniRacing/Scripts/Net/Shared/NetProtocol.cs" Link="Shared/NetProtocol.cs" />
     <Compile Include="../../Assets/HernaniRacing/Plugins/LiteNetLib/**/*.cs" Link="LiteNetLib/%(RecursiveDir)%(Filename)%(Extension)" />

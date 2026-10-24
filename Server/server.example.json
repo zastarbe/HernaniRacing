@@ -5,5 +5,7 @@
   "motd": "¡Bienvenidos! Conducid con cuidado por Hernani.",
   "maxPlayers": 64,
   "maxRooms": 16,
-  "logRelay": false
+  "logRelay": false,
+  "webPort": 8080,
+  "webRoot": "/srv/hernani-web"
 }

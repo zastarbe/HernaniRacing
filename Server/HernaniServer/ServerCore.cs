@@ -22,11 +22,15 @@ namespace HernaniRacing.Server
         public int maxPlayers = 64;
         public int maxRooms = 16;
         public bool logRelay = false;
+        /// <summary>Versión web: puerto TCP de la página del juego y del WebSocket (0 = sin versión web).</summary>
+        public int webPort = NetProto.DefaultWebPort;
+        /// <summary>Carpeta con el build WebGL de Unity (index.html, Build/, TemplateData/).</summary>
+        public string webRoot = "/srv/hernani-web";
     }
 
     class Player
     {
-        public NetPeer peer;
+        public IConn conn;
         public byte id;
         public PlayerProfile profile;
         public string dataSig;
@@ -54,7 +58,12 @@ namespace HernaniRacing.Server
         readonly ServerConfig cfg;
         readonly NetManager net;
         readonly Stopwatch clock = Stopwatch.StartNew();
-        readonly Dictionary<int, Player> byPeer = new Dictionary<int, Player>();
+        readonly Dictionary<IConn, Player> players = new Dictionary<IConn, Player>();
+        readonly Dictionary<int, UdpConn> udpConns = new Dictionary<int, UdpConn>();
+        WebHost web;
+        double nextWsPing;
+        readonly NetDataReader wsReader = new NetDataReader();
+        readonly NetDataWriter pingW = new NetDataWriter();
         readonly Dictionary<string, Room> rooms = new Dictionary<string, Room>();
         readonly NetDataWriter w = new NetDataWriter();
         readonly NetDataWriter relay = new NetDataWriter();
@@ -78,7 +87,7 @@ namespace HernaniRacing.Server
         }
 
         public double Now { get { return clock.Elapsed.TotalSeconds; } }
-        public int PlayerCount { get { return byPeer.Count; } }
+        public int PlayerCount { get { return players.Count; } }
         public int RoomCount { get { return rooms.Count; } }
 
         public bool Start()
@@ -86,15 +95,21 @@ namespace HernaniRacing.Server
             bool ok = net.Start(IPAddress.Any, IPAddress.IPv6Any, cfg.port);
             if (ok) Log($"[{Stamp()}] Escuchando en UDP {cfg.port} · contraseña {(string.IsNullOrEmpty(cfg.password) ? "NO (cualquiera puede entrar)" : "sí")} · máx. {cfg.maxPlayers} jugadores");
             else Log($"[{Stamp()}] ERROR: no puedo abrir el puerto UDP {cfg.port} (¿ya hay otro servidor?)");
+            if (ok && cfg.webPort > 0)
+            {
+                web = new WebHost(cfg, () => Now) { Log = Log };
+                if (!web.Start()) web = null;      // sin versión web, pero el juego de PC sigue funcionando
+            }
             return ok;
         }
 
-        public void Stop() { net.Stop(); }
+        public void Stop() { net.Stop(); web?.Stop(); }
 
         /// <summary>Bucle principal: llamar a menudo (cada 2-5 ms).</summary>
         public void Tick()
         {
             net.PollEvents();
+            if (web != null) PollWeb();
             if (Now >= nextPingBroadcast)
             {
                 nextPingBroadcast = Now + 3.0;
@@ -105,29 +120,52 @@ namespace HernaniRacing.Server
         static string Stamp() { return DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"); }
 
         // ------------------------------------------------------------------ conexiones
+        /// <summary>Comprueba los datos de conexión: null si puede entrar, o el motivo del rechazo.</summary>
+        string Check(NetDataReader data, out ConnectInfo info)
+        {
+            info = null;
+            try { info = ConnectInfo.Read(data); }
+            catch (Exception) { return "Petición no válida."; }
+            if (info.game != NetProto.Game) return "Esto no es un cliente de Hernani Racing.";
+            if (info.version != NetProto.Version)
+                return info.version < NetProto.Version
+                    ? "Tu juego es más antiguo que el servidor. Actualiza el juego."
+                    : "El servidor es más antiguo que tu juego. Hay que actualizar el servidor.";
+            if (!string.IsNullOrEmpty(cfg.password) && info.password != cfg.password) return "Contraseña del servidor incorrecta.";
+            if (players.Count >= cfg.maxPlayers) return "El servidor está lleno.";
+            return null;
+        }
+
+        Player AddPlayer(IConn conn, ConnectInfo info, byte id)
+        {
+            var p = new Player { conn = conn, id = id, profile = info.profile, dataSig = info.dataSig };
+            players[conn] = p;
+            Log($"[{Stamp()}] + {p.profile.nick} (#{id}) desde {conn.Remote} ({conn.Kind}) · {players.Count} conectados");
+            w.Reset(); w.Put((byte)Msg.Welcome); w.Put(id); w.Put(cfg.serverName); w.Put(cfg.motd);
+            conn.Send(w, NetProto.ChReliable, true);
+            return p;
+        }
+
+        void RemovePlayer(IConn conn, string why)
+        {
+            Player p;
+            if (!players.TryGetValue(conn, out p)) return;
+            players.Remove(conn);
+            Log($"[{Stamp()}] - {p.profile.nick} (#{p.id}) {why} · {players.Count} conectados");
+            LeaveRoom(p, false);
+        }
+
         public void OnConnectionRequest(ConnectionRequest request)
         {
             ConnectInfo info;
-            try { info = ConnectInfo.Read(request.Data); }
-            catch (Exception) { Reject(request, "Petición no válida."); return; }
-            if (info.game != NetProto.Game) { Reject(request, "Esto no es un cliente de Hernani Racing."); return; }
-            if (info.version != NetProto.Version)
-            {
-                Reject(request, info.version < NetProto.Version
-                    ? "Tu juego es más antiguo que el servidor. Actualiza el juego."
-                    : "El servidor es más antiguo que tu juego. Hay que actualizar el servidor.");
-                return;
-            }
-            if (!string.IsNullOrEmpty(cfg.password) && info.password != cfg.password) { Reject(request, "Contraseña del servidor incorrecta."); return; }
-            if (byPeer.Count >= cfg.maxPlayers) { Reject(request, "El servidor está lleno."); return; }
-            byte id = FreeId();
-            if (id == 0) { Reject(request, "El servidor está lleno."); return; }
+            string why = Check(request.Data, out info);
+            byte id = why == null ? FreeId() : (byte)0;
+            if (why == null && id == 0) why = "El servidor está lleno.";
+            if (why != null) { Reject(request, why); return; }
             var peer = request.Accept();
-            var p = new Player { peer = peer, id = id, profile = info.profile, dataSig = info.dataSig };
-            byPeer[peer.Id] = p;
-            Log($"[{Stamp()}] + {p.profile.nick} (#{id}) desde {request.RemoteEndPoint} · {byPeer.Count} conectados");
-            w.Reset(); w.Put((byte)Msg.Welcome); w.Put(id); w.Put(cfg.serverName); w.Put(cfg.motd);
-            peer.Send(w, NetProto.ChReliable, DeliveryMethod.ReliableOrdered);
+            var conn = new UdpConn(peer, request.RemoteEndPoint.ToString());
+            udpConns[peer.Id] = conn;
+            AddPlayer(conn, info, id);
         }
 
         void Reject(ConnectionRequest req, string why)
@@ -137,9 +175,63 @@ namespace HernaniRacing.Server
             Log($"[{Stamp()}] x rechazado {req.RemoteEndPoint}: {why}");
         }
 
+        // ------------------------------------------------------------------ jugadores de la versión web (WebSocket)
+        void PollWeb()
+        {
+            WsEvent ev;
+            int guard = 0;
+            while (guard++ < 5000 && web.events.TryDequeue(out ev))
+            {
+                var c = ev.conn;
+                if (ev.data == null) { RemovePlayer(c, "web: desconectado"); continue; }
+                c.lastRecv = Now;
+                var d = ev.data;
+                if (d[0] == NetProto.WsPing)
+                {
+                    if (d.Length >= 9)
+                    {
+                        double rtt = Now - BitConverter.ToDouble(d, 1);
+                        if (rtt >= 0 && rtt < 10) c.rttSmoothed = c.rttSmoothed < 0 ? rtt : c.rttSmoothed + (rtt - c.rttSmoothed) * 0.3;
+                    }
+                    continue;
+                }
+                if (!c.accepted)
+                {
+                    if (d[0] != NetProto.WsHello) { c.Abort(); continue; }
+                    wsReader.SetSource(d, 1, d.Length);
+                    ConnectInfo info;
+                    string why = Check(wsReader, out info);
+                    byte id = why == null ? FreeId() : (byte)0;
+                    if (why == null && id == 0) why = "El servidor está lleno.";
+                    if (why != null) { Log($"[{Stamp()}] x rechazado {c.Remote} (web): {why}"); c.Reject(why); continue; }
+                    c.accepted = true;
+                    AddPlayer(c, info, id);
+                    continue;
+                }
+                Player p;
+                if (!players.TryGetValue(c, out p)) continue;
+                wsReader.SetSource(d, 0, d.Length);
+                Handle(p, wsReader);
+            }
+            if (Now >= nextWsPing)
+            {
+                nextWsPing = Now + 1.0;
+                pingW.Reset(); pingW.Put(NetProto.WsPing); pingW.Put(Now);
+                var lost = new List<IConn>();
+                foreach (var c in players.Keys)
+                {
+                    var wc = c as WsConn;
+                    if (wc == null) continue;
+                    if (Now - wc.lastRecv > 20.0 || wc.IsClosed) { lost.Add(wc); continue; }
+                    wc.SendBytes(pingW.Data, pingW.Length, false);
+                }
+                foreach (var c in lost) { RemovePlayer(c, "web: sin respuesta"); ((WsConn)c).Abort(); }
+            }
+        }
+
         byte FreeId()
         {
-            var used = new HashSet<byte>(byPeer.Values.Select(p => p.id));
+            var used = new HashSet<byte>(players.Values.Select(p => p.id));
             for (int i = 0; i < 250; i++)
             {
                 byte c = (byte)(1 + rnd.Next(250));
@@ -153,11 +245,10 @@ namespace HernaniRacing.Server
 
         public void OnPeerDisconnected(NetPeer peer, DisconnectInfo info)
         {
-            Player p;
-            if (!byPeer.TryGetValue(peer.Id, out p)) return;
-            byPeer.Remove(peer.Id);
-            Log($"[{Stamp()}] - {p.profile.nick} (#{p.id}) {info.Reason} · {byPeer.Count} conectados");
-            LeaveRoom(p, false);
+            UdpConn c;
+            if (!udpConns.TryGetValue(peer.Id, out c)) return;
+            udpConns.Remove(peer.Id);
+            RemovePlayer(c, info.Reason.ToString());
         }
 
         public void OnNetworkError(IPEndPoint endPoint, SocketError socketError) { Log($"[{Stamp()}] error de red {endPoint}: {socketError}"); }
@@ -167,8 +258,15 @@ namespace HernaniRacing.Server
         // ------------------------------------------------------------------ mensajes
         public void OnNetworkReceive(NetPeer peer, NetPacketReader r, byte channel, DeliveryMethod method)
         {
+            UdpConn c;
             Player p;
-            if (!byPeer.TryGetValue(peer.Id, out p) || r.AvailableBytes < 1) return;
+            if (!udpConns.TryGetValue(peer.Id, out c) || !players.TryGetValue(c, out p)) return;
+            Handle(p, r);
+        }
+
+        void Handle(Player p, NetDataReader r)
+        {
+            if (r.AvailableBytes < 1) return;
             var m = (Msg)r.GetByte();
             try
             {
@@ -178,7 +276,7 @@ namespace HernaniRacing.Server
                         {
                             double t = r.GetDouble();
                             w.Reset(); w.Put((byte)Msg.TimeResp); w.Put(t); w.Put(Now);
-                            peer.Send(w, NetProto.ChReliable, DeliveryMethod.Unreliable);
+                            p.conn.Send(w, NetProto.ChReliable, false);
                             break;
                         }
                     case Msg.ListRooms: SendRoomList(p); break;
@@ -225,7 +323,7 @@ namespace HernaniRacing.Server
         void SendError(Player p, string text)
         {
             w.Reset(); w.Put((byte)Msg.Error); w.Put(text);
-            p.peer.Send(w, NetProto.ChReliable, DeliveryMethod.ReliableOrdered);
+            p.conn.Send(w, NetProto.ChReliable, true);
         }
 
         void SendRoomList(Player p)
@@ -235,12 +333,12 @@ namespace HernaniRacing.Server
             w.Put((ushort)list.Count);
             foreach (var x in list)
                 new RoomListEntry { code = x.code, name = x.name, leaderNick = x.leader != null ? x.leader.profile.nick : "", players = (byte)x.players.Count, phase = x.phase }.Write(w);
-            p.peer.Send(w, NetProto.ChReliable, DeliveryMethod.ReliableOrdered);
+            p.conn.Send(w, NetProto.ChReliable, true);
         }
 
         void BroadcastRoomList()
         {
-            foreach (var p in byPeer.Values) if (p.room == null) SendRoomList(p);
+            foreach (var p in players.Values) if (p.room == null) SendRoomList(p);
         }
 
         string NewCode()
@@ -307,7 +405,7 @@ namespace HernaniRacing.Server
             if (notify)
             {
                 w.Reset(); w.Put((byte)Msg.LeftRoom);
-                p.peer.Send(w, NetProto.ChReliable, DeliveryMethod.ReliableOrdered);
+                p.conn.Send(w, NetProto.ChReliable, true);
             }
             if (room.players.Count == 0)
             {
@@ -367,7 +465,7 @@ namespace HernaniRacing.Server
                 startAt = room.startAt, gameSerial = room.gameSerial, settings = room.settings
             };
             foreach (var x in room.players.OrderBy(x => x.slot))
-                ri.players.Add(new PlayerInfo { id = x.id, profile = x.profile, slot = x.slot, inGame = x.inGame, ping = (ushort)Math.Min(9999, x.peer.RoundTripTime) });
+                ri.players.Add(new PlayerInfo { id = x.id, profile = x.profile, slot = x.slot, inGame = x.inGame, ping = (ushort)Math.Min(9999, x.conn.Rtt) });
             return ri;
         }
 
@@ -375,11 +473,11 @@ namespace HernaniRacing.Server
         {
             w.Reset(); w.Put((byte)Msg.RoomState);
             Info(room).Write(w);
-            foreach (var x in room.players) x.peer.Send(w, NetProto.ChReliable, DeliveryMethod.ReliableOrdered);
+            foreach (var x in room.players) x.conn.Send(w, NetProto.ChReliable, true);
         }
 
         // ------------------------------------------------------------------ reenvío de posiciones
-        void Relay(Player p, NetPacketReader r)
+        void Relay(Player p, NetDataReader r)
         {
             var room = p.room;
             if (room == null || !p.inGame || room.phase == RoomPhase.Lobby) return;
@@ -396,12 +494,13 @@ namespace HernaniRacing.Server
             relay.Put(r.RawData, r.Position, n);
             byte ch = kind == RelayKind.Cars ? NetProto.ChCars : (kind == RelayKind.Traffic ? NetProto.ChTraffic : NetProto.ChPeds);
             foreach (var x in room.players)
-                if (x != p && x.inGame) x.peer.Send(relay, ch, DeliveryMethod.Unreliable);
+                if (x != p && x.inGame) x.conn.Send(relay, ch, false);
         }
 
         public string Status()
         {
-            var lines = new List<string> { $"{byPeer.Count} jugadores conectados, {rooms.Count} salas" };
+            int webN = players.Keys.Count(c => c is WsConn);
+            var lines = new List<string> { $"{players.Count} jugadores conectados ({webN} desde la web), {rooms.Count} salas" };
             foreach (var r in rooms.Values)
                 lines.Add($"  {r.code} \"{r.name}\" {r.phase} · líder {r.leader?.profile.nick} · " + string.Join(", ", r.players.Select(x => x.profile.nick + (x.inGame ? "*" : ""))));
             return string.Join(Environment.NewLine, lines);

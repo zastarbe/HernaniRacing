@@ -2,19 +2,18 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Net;
-using System.Net.Sockets;
-using LiteNetLib;
 using LiteNetLib.Utils;
 
 namespace HernaniRacing.Net
 {
     public enum ClientState { Offline, Connecting, Connected }
 
-    public class NetClientCore : INetEventListener
+    public class NetClientCore
     {
-        readonly NetManager net;
-        NetPeer server;
+        readonly INetTransport transport;
+        bool linked;                 // hay conexión (o intento) abierta en el transporte
+        double lastHeard;
+        int lastRttMs;
         readonly NetDataWriter w = new NetDataWriter();
         readonly Stopwatch clock = Stopwatch.StartNew();
 
@@ -25,7 +24,9 @@ namespace HernaniRacing.Net
         public string Motd { get; private set; } = "";
         public RoomInfo Room { get; private set; }
         public List<RoomListEntry> Rooms { get; private set; } = new List<RoomListEntry>();
-        public int Ping { get { return server != null ? server.RoundTripTime : 0; } }
+        public int Ping { get { int t = linked ? transport.Rtt : -1; return t >= 0 ? t : lastRttMs; } }
+        /// <summary>Conexión por WebSocket (versión web) en vez de UDP.</summary>
+        public bool IsWeb { get { return transport.IsWeb; } }
         public PlayerProfile Profile = new PlayerProfile();
 
         // reloj del servidor
@@ -42,17 +43,13 @@ namespace HernaniRacing.Net
         public delegate void RelayHandler(byte from, RelayKind kind, double time, int count, NetDataReader r);
         public event RelayHandler RelayReceived;
 
-        public NetClientCore()
+        public NetClientCore() : this(new UdpTransport()) { }
+
+        public NetClientCore(INetTransport t)
         {
-            net = new NetManager(this)
-            {
-                ChannelsCount = (byte)NetProto.Channels,
-                DisconnectTimeout = 10000,
-                UpdateTime = 10,
-                AutoRecycle = true,
-                UnsyncedEvents = false,
-                IPv6Enabled = false
-            };
+            transport = t;
+            transport.Received = OnReceive;
+            transport.Closed = OnClosed;
         }
 
         public double LocalTime { get { return clock.Elapsed.TotalSeconds; } }
@@ -67,36 +64,26 @@ namespace HernaniRacing.Net
         {
             Disconnect();
             LastError = null;
-            if (!net.IsRunning) net.Start();
             var info = new ConnectInfo { password = password ?? "", dataSig = dataSig ?? "", profile = Profile };
             w.Reset();
             info.Write(w);
-            IPAddress ip;
-            try
+            string err = (host ?? "").Trim().Length == 0 ? "Falta la dirección del servidor." : transport.Connect(host, port, w);
+            if (err != null)
             {
-                if (!IPAddress.TryParse(host.Trim(), out ip))
-                {
-                    ip = null;
-                    foreach (var a in Dns.GetHostAddresses(host.Trim()))
-                        if (a.AddressFamily == AddressFamily.InterNetwork) { ip = a; break; }
-                    if (ip == null) throw new Exception("sin IPv4");
-                }
-            }
-            catch (Exception)
-            {
-                LastError = "No encuentro el servidor \"" + host + "\". Revisa la dirección.";
+                LastError = err;
                 State = ClientState.Offline;
                 return;
             }
+            linked = true;
+            lastHeard = LocalTime;
             State = ClientState.Connecting;
-            server = net.Connect(new IPEndPoint(ip, port), w);
             clockSynced = false; bestRtt = 1e9; samples.Clear(); nextTimeReq = 0;
         }
 
         public void Disconnect()
         {
-            if (server != null) server.Disconnect();
-            server = null;
+            if (linked) transport.Disconnect();
+            linked = false;
             Room = null;
             Rooms.Clear();
             State = ClientState.Offline;
@@ -105,24 +92,33 @@ namespace HernaniRacing.Net
         public void Shutdown()
         {
             Disconnect();
-            if (net.IsRunning) net.Stop();
+            transport.Shutdown();
         }
 
         /// <summary>Llamar en cada frame: procesa lo recibido y sincroniza el reloj.</summary>
         public void Poll()
         {
-            if (!net.IsRunning) return;
-            net.PollEvents();
+            if (!linked) return;
+            transport.Poll();
+            if (!linked) return;
+            // WebSocket: el servidor manda un ping cada segundo; si no llega nada en 15 s, la conexión se ha perdido
+            if (transport.IsWeb && LocalTime - lastHeard > 15.0)
+            {
+                bool was = State == ClientState.Connected;
+                transport.Disconnect();
+                OnClosed(was ? CloseKind.Lost : CloseKind.NoResponse, null, "sin datos");
+                return;
+            }
             if (State == ClientState.Connected && LocalTime >= nextTimeReq)
             {
                 nextTimeReq = LocalTime + (samples.Count < 6 ? 0.25 : 2.0);
                 w.Reset(); w.Put((byte)Msg.TimeReq); w.Put(LocalTime);
-                server.Send(w, NetProto.ChReliable, DeliveryMethod.Unreliable);
+                transport.Send(w, NetProto.ChReliable, false);
             }
         }
 
         // ------------------------------------------------------------------ peticiones
-        void SendReliable() { if (server != null && State == ClientState.Connected) server.Send(w, NetProto.ChReliable, DeliveryMethod.ReliableOrdered); }
+        void SendReliable() { if (linked && State == ClientState.Connected) transport.Send(w, NetProto.ChReliable, true); }
 
         public void RequestRooms() { w.Reset(); w.Put((byte)Msg.ListRooms); SendReliable(); }
         public void CreateRoom(string name) { w.Reset(); w.Put((byte)Msg.CreateRoom); w.Put(name ?? ""); SendReliable(); }
@@ -138,54 +134,47 @@ namespace HernaniRacing.Net
         /// <summary>Manda un paquete Relay ya montado con RelayCodec (no fiable: si se pierde llega el siguiente).</summary>
         public void SendRelay(NetDataWriter packet, RelayKind kind)
         {
-            if (server == null || State != ClientState.Connected) return;
+            if (!linked || State != ClientState.Connected) return;
             byte ch = kind == RelayKind.Cars ? NetProto.ChCars : (kind == RelayKind.Traffic ? NetProto.ChTraffic : NetProto.ChPeds);
-            server.Send(packet, ch, DeliveryMethod.Unreliable);
+            transport.Send(packet, ch, false);
         }
 
-        public int MaxUnreliable { get { return server != null ? server.GetMaxSinglePacketSize(DeliveryMethod.Unreliable) : 500; } }
+        public int MaxUnreliable { get { return linked ? transport.MaxUnreliable : 500; } }
 
-        // ------------------------------------------------------------------ eventos de LiteNetLib
-        public void OnPeerConnected(NetPeer peer) { }
-
-        public void OnPeerDisconnected(NetPeer peer, DisconnectInfo info)
+        // ------------------------------------------------------------------ eventos del transporte
+        void OnClosed(CloseKind kind, string serverText, string detail)
         {
-            if (peer != server) return;
+            if (!linked) return;
             bool wasConnected = State == ClientState.Connected;
-            string reason = null;
-            if (info.AdditionalData != null && info.AdditionalData.AvailableBytes > 0)
-            {
-                try { reason = info.AdditionalData.GetString(200); } catch (Exception) { reason = null; }
-            }
+            string reason = serverText;
             if (reason == null)
             {
-                switch (info.Reason)
+                switch (kind)
                 {
-                    case DisconnectReason.ConnectionFailed:
-                    case DisconnectReason.Timeout:
+                    case CloseKind.NoResponse:
+                    case CloseKind.Lost:
                         reason = wasConnected ? "Se ha perdido la conexión con el servidor." :
-                            "El servidor no responde. ¿Está encendido y con el puerto UDP abierto?"; break;
-                    case DisconnectReason.HostUnreachable:
-                    case DisconnectReason.NetworkUnreachable:
+                            (transport.IsWeb ? "El servidor no responde. ¿Está encendido y con el puerto web (TCP) abierto?"
+                                             : "El servidor no responde. ¿Está encendido y con el puerto UDP abierto?"); break;
+                    case CloseKind.Unreachable:
                         reason = "No hay conexión a Internet o el servidor no es accesible."; break;
-                    case DisconnectReason.RemoteConnectionClose:
+                    case CloseKind.RemoteClose:
                         reason = "El servidor ha cerrado la conexión."; break;
-                    case DisconnectReason.DisconnectPeerCalled:
+                    case CloseKind.Local:
                         reason = null; break;
-                    default: reason = "Desconectado (" + info.Reason + ")."; break;
+                    default: reason = "Desconectado (" + detail + ")."; break;
                 }
             }
             LastError = reason;
-            server = null;
+            linked = false;
             Room = null;
             State = ClientState.Offline;
             Disconnected?.Invoke();
         }
 
-        public void OnNetworkError(IPEndPoint endPoint, SocketError socketError) { LastError = "Error de red: " + socketError; }
-
-        public void OnNetworkReceive(NetPeer peer, NetPacketReader r, byte channel, DeliveryMethod method)
+        void OnReceive(NetDataReader r)
         {
+            lastHeard = LocalTime;
             if (r.AvailableBytes < 1) return;
             var m = (Msg)r.GetByte();
             try
@@ -203,6 +192,7 @@ namespace HernaniRacing.Net
                             double sent = r.GetDouble(), st = r.GetDouble();
                             double now = LocalTime, rtt = now - sent;
                             if (rtt < 0 || rtt > 3) break;
+                            lastRttMs = (int)Math.Round(rtt * 1000.0);
                             double off = st + rtt * 0.5 - now;
                             samples.Add(new KeyValuePair<double, double>(rtt, off));
                             if (samples.Count > 16) samples.RemoveAt(0);
@@ -256,8 +246,5 @@ namespace HernaniRacing.Net
             }
         }
 
-        public void OnNetworkReceiveUnconnected(IPEndPoint remoteEndPoint, NetPacketReader reader, UnconnectedMessageType messageType) { }
-        public void OnNetworkLatencyUpdate(NetPeer peer, int latency) { }
-        public void OnConnectionRequest(ConnectionRequest request) { request.Reject(); }
     }
 }

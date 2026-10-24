@@ -27,7 +27,22 @@ namespace HernaniRacing
     {
         public static NetSession I { get; private set; }
         public GameBootstrap game;
-        public readonly NetClientCore Core = new NetClientCore();
+        /// <summary>PC/móvil: UDP (LiteNetLib). Versión web: WebSocket (el navegador no permite UDP). Mismo servidor y mismas salas.</summary>
+        public readonly NetClientCore Core = new NetClientCore(
+#if UNITY_WEBGL && !UNITY_EDITOR
+            new WebSocketTransport()
+#else
+            new UdpTransport()
+#endif
+        );
+        public static bool IsWebBuild
+        {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            get { return true; }
+#else
+            get { return false; }
+#endif
+        }
 
         // datos guardados en el PC
         public string nick;
@@ -41,7 +56,29 @@ namespace HernaniRacing
         public bool HasDefault { get { return defaults != null && !string.IsNullOrEmpty(defaults.host); } }
         bool UseDefaultNow { get { return HasDefault && useDefault; } }
         public string EffectiveHost { get { return (UseDefaultNow ? defaults.host : customHost ?? "").Trim(); } }
-        public int EffectivePort { get { return UseDefaultNow ? (defaults.port > 0 ? defaults.port : NetConfig.DefaultPort) : customPort; } }
+        public int EffectivePort
+        {
+            get
+            {
+                if (IsWebBuild) return UseDefaultNow ? (defaults.webPort > 0 ? defaults.webPort : NetProto.DefaultWebPort) : customPort;
+                return UseDefaultNow ? (defaults.port > 0 ? defaults.port : NetConfig.DefaultPort) : customPort;
+            }
+        }
+        /// <summary>Lo que se le pasa al transporte: en la web, la URL del WebSocket.</summary>
+        string ConnectTarget
+        {
+            get
+            {
+                if (!IsWebBuild) return EffectiveHost;
+                if (UseDefaultNow && !string.IsNullOrEmpty(defaults.webUrl)) return defaults.webUrl.Trim();
+                string h = EffectiveHost;
+                if (h.StartsWith("ws://") || h.StartsWith("wss://")) return h;
+                // página servida por https: el navegador exige WebSocket seguro (wss)
+                string page = Application.absoluteURL ?? "";
+                string scheme = page.StartsWith("https://") ? "wss://" : "ws://";
+                return scheme + h + ":" + EffectivePort + NetProto.WebSocketPath;
+            }
+        }
         string EffectivePassword { get { return UseDefaultNow ? defaults.password ?? "" : customPassword ?? ""; } }
         public string DefaultLabel { get { return !HasDefault ? "" : (string.IsNullOrEmpty(defaults.name) ? defaults.host : defaults.name); } }
         public string ServerLabel { get { return UseDefaultNow ? DefaultLabel + " (por defecto)" : EffectiveHost + ":" + EffectivePort; } }
@@ -72,7 +109,7 @@ namespace HernaniRacing
             defaults = NetConfig.LoadDefaults();
             useDefault = PlayerPrefs.GetInt("net.useDefault", 1) == 1;
             customHost = PlayerPrefs.GetString("net.host", "");
-            customPort = PlayerPrefs.GetInt("net.port", NetConfig.DefaultPort);
+            customPort = IsWebBuild ? PlayerPrefs.GetInt("net.webport", NetProto.DefaultWebPort) : PlayerPrefs.GetInt("net.port", NetConfig.DefaultPort);
             customPassword = PlayerPrefs.GetString("net.password", "");
             nick = PlayerPrefs.GetString("net.nick", "Piloto" + Random.Range(10, 99));
             myCar = PlayerPrefs.GetString("net.car", "turismo");
@@ -104,7 +141,7 @@ namespace HernaniRacing
         {
             PlayerPrefs.SetInt("net.useDefault", useDefault ? 1 : 0);
             PlayerPrefs.SetString("net.host", (customHost ?? "").Trim());
-            PlayerPrefs.SetInt("net.port", customPort);
+            PlayerPrefs.SetInt(IsWebBuild ? "net.webport" : "net.port", customPort);
             PlayerPrefs.SetString("net.password", customPassword ?? "");
             PlayerPrefs.SetString("net.nick", nick ?? "");
             PlayerPrefs.Save();
@@ -116,7 +153,7 @@ namespace HernaniRacing
             SaveConnectionPrefs();
             UpdateProfile(false);
             Status = "Conectando con " + ServerLabel + "...";
-            Core.Connect(EffectiveHost, EffectivePort, EffectivePassword, DataSignature());
+            Core.Connect(ConnectTarget, EffectivePort, EffectivePassword, DataSignature());
             if (Core.State == ClientState.Offline) Status = Core.LastError;
         }
 
@@ -253,6 +290,10 @@ namespace HernaniRacing
             public string host = "";
             public int port = NetProto.DefaultPort;
             public string password = "";
+            /// <summary>Versión web: puerto TCP de la página y del WebSocket (por defecto 8080).</summary>
+            public int webPort = NetProto.DefaultWebPort;
+            /// <summary>Versión web (opcional): URL completa del WebSocket, p. ej. wss://mi-dominio/ws.</summary>
+            public string webUrl = "";
         }
 
         public static ServerDefaults LoadDefaults()

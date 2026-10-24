@@ -292,14 +292,7 @@ namespace HernaniRacing
             if (GUI.Button(br[0], labels[0], bigBtn)) pending = StartRace;
             GUI.enabled = true;
             if (GUI.Button(br[1], labels[1], midBtn)) Go(MenuScreen.Free);
-#if UNITY_WEBGL && !UNITY_EDITOR
-            // el navegador no deja usar UDP (LiteNetLib): online sólo en la versión de PC
-            GUI.enabled = false;
-            GUI.Button(br[2], "ONLINE (sólo PC)", midBtn);
-            GUI.enabled = true;
-#else
             if (GUI.Button(br[2], labels[2], midBtn)) Go(MenuScreen.Online);
-#endif
             if (GUI.Button(br[3], labels[3], btn)) pending = Quit;
             if (wide)
             {

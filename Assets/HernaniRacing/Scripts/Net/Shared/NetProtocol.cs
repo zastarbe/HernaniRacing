@@ -11,6 +11,13 @@ namespace HernaniRacing.Net
         public const string Game = "HernaniRacing";
         public const int Version = 1;               // súbelo si cambias el formato de los mensajes
         public const int DefaultPort = 7777;
+        /// <summary>Puerto TCP de la versión web: página del juego (http) + WebSocket en /ws.</summary>
+        public const int DefaultWebPort = 8080;
+        public const string WebSocketPath = "/ws";
+        // sólo en la conexión WebSocket (el navegador no puede usar UDP): primer byte de los mensajes de control
+        public const byte WsHello = 0xF0;    // cliente -> servidor: primer mensaje, lleva el ConnectInfo
+        public const byte WsReject = 0xFF;   // servidor -> cliente: rechazo con el motivo (y cierra)
+        public const byte WsPing = 0xFE;     // servidor -> cliente -> servidor: el navegador lo devuelve tal cual (mide el ping)
         public const int MaxPlayersPerRoom = 8;
         public const int MaxCarsPerRace = 10;        // jugadores + IA
         public const byte AiOwner = 255;             // "dueño" de los coches de la IA (los simula el líder)
