@@ -209,22 +209,29 @@ namespace HernaniRacing
             tparent.SetParent(w.root, false);
             var tileH = new float[tc + 1, tc + 1];
             // material del terreno SIEMPRE explícito: el terreno se crea en código y, en un build, Unity no
-            // sabe que hacen falta sus shaders (si no están, el suelo sale invisible). El menú "2. Incluir
-            // shaders" (y el preproceso de build automático) los mete en "Always Included Shaders".
+            // sabe que hacen falta sus shaders (si no están, el suelo sale invisible). Por eso hay un material de
+            // terreno guardado en Resources/HernaniTerrain (lo crea el editor solo; menú "2. Preparar build de PC"),
+            // que obliga a meter el shader en el build. Además van en "Always Included Shaders".
             Material tmat = null;
-            bool terrainShader = true;
             {
                 Shader sh = null;
-                if (Mat.IsSRP) sh = Shader.Find("Universal Render Pipeline/Terrain/Lit");
+                var saved = Resources.Load<Material>("HernaniTerrain/TerrainMaterial");
+                if (saved != null && saved.shader != null && saved.shader.isSupported &&
+                    saved.shader.name.StartsWith(Mat.IsSRP ? "Universal" : "Nature")) sh = saved.shader;
+                if (sh == null && Mat.IsSRP) sh = Shader.Find("Universal Render Pipeline/Terrain/Lit");
                 if (sh == null) sh = Shader.Find("Nature/Terrain/Standard");
                 if (sh == null) sh = Shader.Find("Nature/Terrain/Diffuse");
-                if (sh != null && sh.isSupported) tmat = new Material(sh);
+                if (sh != null && sh.isSupported)
+                {
+                    tmat = new Material(sh);
+                    Debug.Log("[Hernani Racing] Terreno: " + sh.name + (saved != null && saved.shader == sh ? " (material de Resources)" : "") +
+                              (Mat.IsSRP ? " · URP" : " · Built-in"));
+                }
                 else
                 {
                     // último recurso: sin shader de terreno al menos se ve el suelo (verde liso)
-                    Debug.LogWarning("[Hernani Racing] No hay shader de terreno en el build: usa el menú Hernani Racing > 2. Incluir shaders para builds");
+                    Debug.LogWarning("[Hernani Racing] No hay shader de terreno en el build: usa el menú Hernani Racing > 2. Preparar build de PC y repite el build");
                     tmat = Mat.Color(new Color(0.36f, 0.52f, 0.25f), 0.1f);
-                    terrainShader = false;
                 }
             }
             for (int tz = 0; tz < w.tilesZ; tz++)
@@ -291,7 +298,10 @@ namespace HernaniRacing
                     tcol.enabled = true;
                     t.heightmapPixelError = 1;   // el asfalto va pegado al terreno: mínimo error de LOD
                     t.basemapDistance = 1200;
-                    t.drawInstanced = terrainShader;   // el dibujado instanciado necesita un shader de terreno
+                    // SIN dibujado instanciado: en los builds Unity quita las variantes "instanced" de los shaders de
+                    // terreno cuando no hay ningún terreno en la escena (aquí se crean por código) y entonces el suelo
+                    // sale INVISIBLE en el .exe aunque en el editor se vea bien. El dibujado normal siempre está.
+                    t.drawInstanced = false;
                     t.treeDistance = 0;
                     t.groupingID = 1;
                     t.allowAutoConnect = true;

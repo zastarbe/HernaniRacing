@@ -40,7 +40,8 @@ namespace HernaniRacing
         public bool finished;
         public float finishTime;
         public int finishOrder;
-        public bool estimated;       // no llegó a tiempo: tiempo estimado por su ritmo
+        public bool retired;         // no llegó: se paró mucho después de la meta del jugador (sin tiempo inventado)
+        public float retireTime = -1, retireLeft;   // tiempo de carrera y metros que le faltaban cuando se paró
         public bool ghosted;         // ya no choca con los demás coches de la carrera (tras la meta)
         public float offTimer, wrongTimer, stuckTimer, flipTimer;
         public bool offTrack, wrongWay;
@@ -296,6 +297,7 @@ namespace HernaniRacing
                 r.lapTimes.Clear();
                 r.bestLap = -1;
                 r.finished = false;
+                r.retired = false; r.retireTime = -1; r.retireLeft = 0;
                 r.offTimer = r.wrongTimer = r.stuckTimer = r.flipTimer = 0;
                 if (r.ai != null) r.ai.ResetTracking();
             }
@@ -391,14 +393,15 @@ namespace HernaniRacing
 
             if (player != null && state == State.Racing && GameInput.ResetPressed) ResetRacer(player);
             // los rivales siguen corriendo hasta cruzar la meta (su tiempo es el real); si alguno tarda
-            // muchísimo, se le da un tiempo estimado por su ritmo y se para poco a poco
-            if (state == State.Finished && Clock - finishedAt > EstimateAfter)
+            // muchísimo, se para poco a poco y en los resultados queda con el tiempo y la distancia que le faltaba
+            // (no se inventa un tiempo de llegada)
+            if (state == State.Finished && Clock - finishedAt > RetireAfter)
                 foreach (var r in racers)
-                    if (!r.finished && !r.remote && !r.gone && !r.isPlayer) EstimateFinish(r);
+                    if (!r.finished && !r.retired && !r.gone && !r.isPlayer) Retire(r);
             if (online) CheckGone();
         }
 
-        const float EstimateAfter = 150f;
+        const float RetireAfter = 150f;
 
         int CompareRacers(Racer a, Racer b)
         {
@@ -408,7 +411,6 @@ namespace HernaniRacing
             int c;
             if (a.finished)
             {
-                if (a.estimated != b.estimated) return a.estimated ? 1 : -1;
                 c = a.finishTime.CompareTo(b.finishTime);
                 if (c == 0) c = a.finishOrder.CompareTo(b.finishOrder);
             }
@@ -455,14 +457,18 @@ namespace HernaniRacing
             else if (r.ai != null) r.ai.StartCoolDown(7f);
         }
 
-        void EstimateFinish(Racer r)
+        /// <summary>Metros que le faltan a un coche para la meta.</summary>
+        float Remaining(Racer r)
         {
-            float avg = raceTime > 1 ? Mathf.Max(r.progress, 1f) / raceTime : 10f;
-            float remaining = Mathf.Max(0f, settings.laps * circuit.length - r.progress);
-            r.finished = true; r.estimated = true;
-            r.finishTime = raceTime + remaining / Mathf.Max(avg, 1f);
-            r.finishOrder = ++finishCounter;
-            StartCoolDown(r);
+            return Mathf.Max(0f, settings.laps * circuit.length - r.progress);
+        }
+
+        void Retire(Racer r)
+        {
+            r.retired = true;
+            r.retireTime = raceTime;
+            r.retireLeft = Remaining(r);
+            if (!r.remote) StartCoolDown(r);   // los de otros PCs sólo se congelan en la tabla
         }
 
         void CheckGone()
@@ -527,10 +533,10 @@ namespace HernaniRacing
             if (ds < -L * 0.5f) ds += L;
             r.lastS = s;
             if (state == State.Countdown) return;
-            if (!r.finished) r.progress += ds;
+            if (!r.finished && !r.retired) r.progress += ds;
 
             int laps = Mathf.FloorToInt(r.progress / L);
-            if (!r.finished && laps > r.lapsDone)
+            if (!r.finished && !r.retired && laps > r.lapsDone)
             {
                 float lt = Clock - r.lapStart;
                 r.lapTimes.Add(lt);
@@ -572,7 +578,7 @@ namespace HernaniRacing
             r.stuckTimer = (!car.frozen && car.PenaltyLeft <= 0f && car.Speed < 1.2f && !blocked) ? r.stuckTimer + Time.deltaTime : 0f;
             r.flipTimer = Vector3.Dot(car.transform.up, Vector3.up) < 0.3f ? r.flipTimer + Time.deltaTime : 0f;
 
-            if (r.finished)
+            if (r.finished || r.retired)
             {   // después de la meta sólo se recoloca si vuelca o se cae del mapa
                 if (r.flipTimer > 3f || p.y < -50f) ResetRacer(r);
                 return;
@@ -610,6 +616,13 @@ namespace HernaniRacing
         }
 
         void Flash(string m, float t) { message = m; messageUntil = Time.unscaledTime + t; }
+
+        /// <summary>850 m · 1,24 km</summary>
+        public static string FormatDist(float m)
+        {
+            if (m < 1000f) return Mathf.RoundToInt(m) + " m";
+            return (m / 1000f).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture).Replace('.', ',') + " km";
+        }
 
         public static string FormatTime(float t)
         {
@@ -803,27 +816,29 @@ namespace HernaniRacing
         {
             if (Clock - finishedAt < 2.5f) return;
             var order = racers.OrderBy(r => r.position).ToList();
-            float h = 200 + order.Count * 34;
-            Rect r = new Rect(W / 2 - 330, H / 2 - h / 2, 660, h);
+            float h = 236 + order.Count * 34;
+            Rect r = new Rect(W / 2 - 410, H / 2 - h / 2, 820, h);
             GUI.Box(r, GUIContent.none, box);
             GUI.Label(new Rect(r.x, r.y + 14, r.width, 50), "RESULTADOS — " + player.position + "º puesto", new GUIStyle(mid) { alignment = TextAnchor.MiddleCenter, fontSize = 34 });
+            // cabecera de columnas
+            GUI.Label(new Rect(r.x + 300, r.y + 70, 140, 26), "tiempo", small);
+            GUI.Label(new Rect(r.x + 445, r.y + 70, 215, 26), "hasta la meta", small);
+            GUI.Label(new Rect(r.x + 665, r.y + 70, 145, 26), "mejor vuelta", small);
             for (int i = 0; i < order.Count; i++)
             {
                 var x = order[i];
-                float y = r.y + 76 + i * 34;
-                GUI.DrawTexture(new Rect(r.x + 40, y + 8, 16, 16), Tex.Solid(x.color));
-                GUI.Label(new Rect(r.x + 66, y, 220, 30), x.position + ". " + x.name, x.isPlayer ? mid : label);
-                string t;
-                if (x.finished) t = (x.estimated ? "≈" : "") + FormatTime(x.finishTime) + (x.estimated ? " (estimado)" : "");
-                else if (x.gone) t = "abandona";
-                else
-                {
-                    float avg = raceTime > 1 ? Mathf.Max(x.progress, 1f) / raceTime : 10f;
-                    float remaining = settings.laps * circuit.length - x.progress;
-                    t = "~" + FormatTime(raceTime + remaining / Mathf.Max(avg, 1f)) + " (en pista)";
-                }
-                GUI.Label(new Rect(r.x + 280, y, 220, 30), t, label);
-                GUI.Label(new Rect(r.x + 480, y, 160, 30), "mejor " + FormatTime(x.bestLap), small);
+                float y = r.y + 100 + i * 34;
+                GUI.DrawTexture(new Rect(r.x + 30, y + 8, 16, 16), Tex.Solid(x.color));
+                GUI.Label(new Rect(r.x + 56, y, 240, 30), x.position + ". " + x.name, x.isPlayer ? mid : label);
+                // llegados: su tiempo de meta. En pista: el tiempo que lleva (corre en directo) y lo que le falta.
+                string t, left;
+                if (x.finished) { t = FormatTime(x.finishTime); left = "en meta"; }
+                else if (x.gone) { t = "--:--.---"; left = "abandona"; }
+                else if (x.retired) { t = FormatTime(x.retireTime); left = "no llega · " + FormatDist(x.retireLeft); }
+                else { t = FormatTime(raceTime); left = "faltan " + FormatDist(Remaining(x)); }
+                GUI.Label(new Rect(r.x + 300, y, 140, 30), t, label);
+                GUI.Label(new Rect(r.x + 445, y, 215, 30), left, x.finished ? small : label);
+                GUI.Label(new Rect(r.x + 665, y, 145, 30), FormatTime(x.bestLap), small);
             }
             if (online)
             {

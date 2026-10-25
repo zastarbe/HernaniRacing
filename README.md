@@ -11,6 +11,26 @@ laterales quedan abiertas y la calzada va pegada al terreno real.
 También hay un modo **Paseo libre**: conduces por todo Hernani sin carrera, con tráfico y peatones que respetan
 las señales.
 
+## Novedades (versión 13): resultados sin tiempos inventados, suelo en el .exe y guía de instalación
+* **Resultados de la carrera.** Ya no se muestra un tiempo de llegada estimado para los que vienen detrás. Cada coche sale con:
+  * si ya ha llegado: su **tiempo de meta**;
+  * si sigue en pista: **el tiempo que lleva** (corre en directo) y **lo que le falta hasta la meta** (*faltan 850 m*, *faltan 1,24 km*);
+  * si a los 2 min y medio de tu llegada aún no ha terminado: se para poco a poco y queda **«no llega»**, con el tiempo y la distancia
+    que le faltaba en ese momento.
+
+  Hay columnas: *tiempo*, *hasta la meta* y *mejor vuelta*.
+* **Build de Windows (.exe): el suelo ya se ve**, con colores y con ortofoto. Unity quitaba del build las variantes del shader del
+  terreno que usa el dibujado *instanced*, porque el terreno se crea por código y no hay ninguno en la escena. Por eso en el editor se
+  veía y en el `.exe` no. Ahora:
+  * el terreno se dibuja sin *instancing* (ese camino siempre está en el build);
+  * hay un **material de terreno guardado** en `Resources/HernaniTerrain` que obliga a meter su shader;
+  * el nuevo menú **Hernani Racing → 2. Preparar build de PC (Windows)** activa los huecos del terreno de URP (bocas de los túneles)
+    y quita *Strict shader variant matching*;
+  * el registro del juego (`Player.log`) dice qué shader de terreno usa.
+* **README: nueva sección 1** con los pasos de instalación, actualización, build y desinstalación de cada pieza: proyecto de Unity,
+  juego de PC, juego web y servidor.
+* El protocolo online no cambia, pero rehaz los dos builds (PC y web) para que todos tengáis la misma versión.
+
 ## Novedades (versión 12): desinstalador del servidor
 * **`Server/uninstall.sh`** borra del servidor Ubuntu todo lo que instalaron `install.sh` e `install-web.sh`: el servicio,
   el programa, la configuración (con la contraseña), el juego web, el usuario `hernani`, las reglas de ufw y los restos de la compilación.
@@ -34,7 +54,7 @@ las señales.
 * **Arreglada la cámara al empezar.** Al salir desde la pantalla del mapa (circuito o paseo), la cámara se quedaba con la vista
   cenital del mapa y se veía todo lejos (hasta que se reiniciaba la carrera). Ahora se coloca siempre detrás del coche.
 * **Unity 6.3 LTS.** Revisado contra la API de Unity 6.3. Nuevo menú **Hernani Racing → 3. Preparar ajustes para el build web**,
-  que deja la configuración del build web hecha (paso a paso en 1.1).
+  que deja la configuración del build web hecha (paso a paso en 1.5).
 
 ## Novedades (versión 10): online también desde el navegador
 * **La versión web ya juega online**, en las **mismas salas** que los de PC: unos desde el .exe y otros desde Chrome/Edge/Firefox,
@@ -55,7 +75,7 @@ las señales.
 * **Vuelta de deceleración.** Al cruzar la meta cada coche (también el tuyo, con piloto automático) frena **poco a poco** en unos
   7 segundos y se aparta al lado derecho hasta pararse. Los coches que ya han terminado **no chocan** con los demás de la carrera.
   Los rivales que van por detrás siguen corriendo hasta cruzar la meta con su tiempo real
-  (sólo si tardan más de 2 min y medio se les da un tiempo estimado, marcado con «≈»).
+  (desde la v13, si tardan más de 2 min y medio se paran y quedan como «no llega», sin tiempo estimado).
 * **IA más prudente.** Cada rival mira qué hay en su calzada (los demás coches de la carrera, el tráfico en su sentido **y el que
   viene de frente**, y los peatones que cruzan) y elige el hueco más libre: adelanta sólo si cabe, no se cruza delante de un coche
   que lleva al lado y, si no hay hueco, se queda detrás guardando la distancia.
@@ -158,30 +178,89 @@ las señales.
 
 ---
 
-## 1. Puesta en marcha (5 minutos)
+## 1. Instalar, compilar y desinstalar (paso a paso)
 
+Resumen: hay **cuatro piezas** y cada una se instala y se quita por separado:
+
+| Pieza | Dónde | Instalar | Desinstalar |
+|---|---|---|---|
+| **Proyecto de Unity** | tu PC | 1.1 | 1.8 |
+| **Juego de PC** (`.exe`) | los PC de los chavales | 1.3 (build) y 1.4 | 1.4 |
+| **Juego web** | tu servidor (puerto 8080) | 1.5 (build) y 1.6 | 1.6 |
+| **Servidor online** | tu servidor Ubuntu | 1.7 (detalle en 5.2) | 1.7 (detalle en 5.9) |
+
+> **La misma versión en todo.** El PC, la web y el servidor tienen que ser de la misma versión del proyecto.
+> Si cambias de versión, repite los builds de PC y web y actualiza el servidor (`git pull` + `sudo ./install.sh`).
+
+### 1.1 Proyecto de Unity: instalarlo en tu PC (una vez)
 Requisitos: **Unity 6.3 LTS** (recomendado) o cualquier versión desde la 2021.3 LTS. Hay ramas `#if` para **Unity 6** y para el
 **nuevo Input System**. Vale Built‑in o URP.
 
-1. En Unity Hub crea un proyecto nuevo **Universal 3D** (URP) o **3D (Built‑In Render Pipeline)**.
-2. Copia la carpeta `Assets/HernaniRacing` dentro del `Assets` de tu proyecto.
-3. *(Opcional)* Copia `DataPipeline/` **junto a** `Assets/` (en la raíz del proyecto) si quieres regenerar los datos.
-4. En Unity, en el menú **Hernani Racing → 1. Crear escena de juego**.
-   Se crea `Assets/HernaniRacing/Scenes/Hernani.unity`, se añade a la lista de escenas del build (*Build Profiles → Scene List*) y se
-   registran los shaders necesarios.
-   La primera vez Unity importa las 70 imágenes de la ortofoto (con compresión *crunch*): tarda unos minutos.
-5. Pulsa **Play**. Hay una pantalla de carga de unos segundos mientras se construye el mundo
+1. En **Unity Hub → Installs**, instala Unity 6.3 LTS con los módulos **Windows Build Support** (normalmente viene con el editor)
+   y **Web Build Support** (para la versión web).
+2. En **Unity Hub → Projects → New project** crea un proyecto **Universal 3D** (URP) o **3D (Built‑In Render Pipeline)**.
+   Ponle de nombre, por ejemplo, `HernaniRacing` (será el nombre del `.exe`).
+3. Cierra Unity. Copia la carpeta `Assets/HernaniRacing` del zip dentro del `Assets` de tu proyecto.
+   Usa **el zip personal** (el que lleva `Assets/HernaniRacing/Resources/HernaniNet/server_default.json`) si quieres que el juego
+   traiga ya tu servidor y los chavales sólo escriban su nombre.
+4. *(Opcional)* Copia `DataPipeline/` **junto a** `Assets/` (en la raíz del proyecto) si quieres regenerar los datos.
+5. Abre el proyecto. La primera vez Unity importa las 70 imágenes de la ortofoto (con compresión *crunch*): tarda unos minutos.
+6. Menú **Hernani Racing → 1. Crear escena de juego**. Se crea `Assets/HernaniRacing/Scenes/Hernani.unity`, se añade a la lista
+   de escenas del build y se prepara todo lo que necesitan los builds (shaders y material del terreno).
+7. Pulsa **Play**. Hay una pantalla de carga de unos segundos mientras se construye el mundo
    (terreno de 10,2 × 7,2 km en 70 teselas, unos 6.750 edificios, unos 206.000 árboles, calles, puentes y túneles).
-   La primera carga tarda más que en la versión anterior (en un PC normal, entre 20 y 60 s).
+   En un PC normal tarda entre 20 y 60 s.
 
 > Si tu proyecto usa **solo** el nuevo Input System (lo habitual en Unity 6), el código lo detecta
 > automáticamente. Con *Active Input Handling = Both* se usa el Input Manager clásico.
 
-Para un ejecutable (Unity 6): *File → Build Profiles → Windows → Build* (en Unity 2022: *File → Build Settings → Build*).
-Antes de cada build se añaden solos los shaders que hacen falta (materiales y terreno). Si aun así algo sale rosa o invisible,
-ejecuta **Hernani Racing → 2. Incluir shaders para builds** y vuelve a hacer el build.
+### 1.2 Actualizar el proyecto a una versión nueva
+1. Cierra Unity.
+2. Copia la carpeta `Assets/HernaniRacing` del zip nuevo **encima** de la tuya y acepta **reemplazar** los archivos.
+   Tu escena (`Scenes/Hernani.unity`) y tu `server_default.json` se conservan: el zip público de GitHub no los trae.
+3. Abre el proyecto y espera a que termine de compilar (la barra de abajo a la derecha).
+4. Rehaz los builds que uses (1.3 PC, 1.5 web) y actualiza el servidor (1.7).
 
-### 1.1 Build web (navegador) paso a paso, Unity 6.3
+### 1.3 Build de PC (Windows `.exe`) paso a paso, Unity 6.3
+1. Menú **Hernani Racing → 2. Preparar build de PC (Windows)**. Hace esto:
+   * mete la escena en la lista del build;
+   * añade los shaders a *Always Included Shaders*;
+   * crea el material del terreno en `Assets/HernaniRacing/Resources/HernaniTerrain/` (sin él, el suelo salía **invisible** en el `.exe`);
+   * activa *Terrain Holes* en URP (las bocas de los túneles);
+   * desactiva *Strict shader variant matching*.
+
+   Sale un aviso con el resumen. Esto mismo se repite solo antes de cada build, pero hazlo una vez a mano.
+2. **File → Build Profiles**. En *Platforms* elige **Windows**. Si no es la plataforma activa, pulsa **Switch Platform** y espera.
+3. En **Scene List** comprueba que está marcada `Assets/HernaniRacing/Scenes/Hernani.unity` (y ninguna otra escena delante).
+4. Ajustes del perfil: *Architecture* = **Intel 64-bit**, *Development Build* **desmarcado**. Lo demás, como viene.
+5. Pulsa **Build** y elige una carpeta **vacía** (por ejemplo `HernaniPC`). Tarda unos minutos.
+   Dentro quedan `HernaniRacing.exe`, la carpeta `HernaniRacing_Data`, `UnityPlayer.dll` y alguna carpeta más.
+   La carpeta `..._BurstDebugInformation_DoNotShip`, si sale, **no** se reparte.
+6. Pruébalo: abre el `.exe`, entra en una carrera y pulsa **O** para pasar de colores a ortofoto. El suelo tiene que verse en los dos modos.
+7. Si el suelo no se ve, busca el registro del juego: `%USERPROFILE%\AppData\LocalLow\<Company Name>\<Product Name>\Player.log`
+   (pega esa ruta en el Explorador; *Company Name* y *Product Name* están en *Project Settings → Player*, por defecto
+   `DefaultCompany` y el nombre del proyecto). Busca la línea `[Hernani Racing] Terreno:` y pásamela.
+
+### 1.4 El juego de PC en los ordenadores de los chavales
+**Instalar:** comprime la carpeta del build (`HernaniPC`) en un ZIP y pásalo (Drive, WeTransfer, un pendrive...).
+En cada PC: descomprímelo en una carpeta (por ejemplo `Documentos\HernaniRacing`) y abre `HernaniRacing.exe`.
+La primera vez Windows puede preguntar:
+* *Windows protegió su PC* (SmartScreen): pulsa **Más información → Ejecutar de todas formas**.
+* *Cortafuegos de Windows*: pulsa **Permitir acceso**. Hace falta para jugar online.
+
+**Actualizar:** borra la carpeta vieja y descomprime la nueva. Los ajustes y el nombre se conservan.
+
+**Desinstalar (sin dejar rastro):**
+1. Borra la carpeta del juego.
+2. Borra los ajustes guardados (nombre, coche, opciones). En PowerShell:
+   `Remove-Item -Recurse "HKCU:\Software\DefaultCompany\HernaniRacing"`
+   (cambia `DefaultCompany` y `HernaniRacing` por tu *Company Name* y *Product Name*).
+3. Borra el registro del juego: la carpeta `%USERPROFILE%\AppData\LocalLow\DefaultCompany\HernaniRacing`.
+4. *(Si pulsaste «Permitir acceso»)* quita la regla del cortafuegos: *Panel de control → Firewall de Windows Defender →
+   Permitir una aplicación* y borra *HernaniRacing*. O en PowerShell como administrador:
+   `Get-NetFirewallRule | Where-Object DisplayName -like "*HernaniRacing*" | Remove-NetFirewallRule`
+
+### 1.5 Build web (navegador) paso a paso, Unity 6.3
 1. **Usa el proyecto con tu `server_default.json`** (el zip personal, que lleva `Assets/HernaniRacing/Resources/HernaniNet/server_default.json`).
    Así la web ya trae tu servidor y los chavales sólo escriben su nombre. Comprueba que también está `Assets/HernaniRacing/link.xml`.
 2. Si no existe la escena: **Hernani Racing → 1. Crear escena de juego**.
@@ -194,16 +273,50 @@ ejecuta **Hernani Racing → 2. Incluir shaders para builds** y vuelve a hacer e
    * *Other Settings → Managed Stripping Level* = **Minimal**.
 4. **File → Build Profiles**. En la lista *Platforms* elige **Web** y pulsa **Switch Platform**. La primera vez tarda: Unity
    reimporta las texturas para la web, también la ortofoto. Si en el perfil Web aparece *Texture Compression*, déjalo en **DXT**
-   (el de los PC). Lo demás, como viene.
+   (el de los PC). En **Scene List**, `Hernani.unity` marcada. Lo demás, como viene.
 5. Pulsa **Build** y elige una carpeta **vacía** (por ejemplo `HernaniWeb`). Tarda varios minutos. Dentro quedarán `index.html`,
    `Build/` y `TemplateData/`.
-6. Comprime **esa carpeta** en un ZIP (`HernaniWeb.zip`) y súbela a tu servidor, por ejemplo con WinSCP o con
-   `scp HernaniWeb.zip usuario@194.164.164.15:` (en PowerShell de Windows también existe `scp`).
-7. En el servidor: `cd HernaniRacing/Server && sudo ./install-web.sh ~/HernaniWeb.zip`
-8. Abre **http://IP-del-servidor:8080** en Chrome o Edge (en un PC). La primera carga descarga más de 100 MB (con *Data Caching*, sólo la primera vez).
+6. Comprime **esa carpeta** en un ZIP (`HernaniWeb.zip`).
 
 Si un build web falla o se queda en negro: mira la consola del navegador (F12). Si cayeran los coches al vacío, desmarca
-*Other Settings → Strip Engine Code*. Más detalles del servidor web en el apartado 5.4b.
+*Other Settings → Strip Engine Code*. Para volver a hacer el `.exe` después: *Build Profiles → Windows → Switch Platform*.
+
+### 1.6 Publicar la web en tu servidor (y quitarla)
+**Publicar o actualizar:**
+1. Sube el ZIP al servidor, por ejemplo con WinSCP o con `scp HernaniWeb.zip usuario@194.164.164.15:`
+   (en PowerShell de Windows también existe `scp`).
+2. En el servidor: `cd ~/HernaniRacing/Server && sudo ./install-web.sh ~/HernaniWeb.zip`
+   (hace falta el servidor instalado, 1.7; el script sustituye la versión web anterior).
+3. Abre **http://IP-del-servidor:8080** en Chrome o Edge (en un PC). La primera carga descarga más de 100 MB
+   (con *Data Caching*, sólo la primera vez).
+
+**Quitar sólo la web** (el online de PC sigue funcionando):
+* Borrar el juego web: `sudo rm -rf /srv/hernani-web/*`
+* o, además, cerrar el puerto web: `"webPort": 0` en `/etc/hernani-server/server.json`, luego `sudo systemctl restart hernani-server`
+  y `sudo ufw delete allow 8080/tcp`.
+
+**En el navegador de cada PC** (opcional): la web guarda una copia (*Data Caching*) y los ajustes. Para borrarlos, en Chrome o Edge:
+*Configuración → Privacidad → Cookies y datos de sitios → Ver todos los datos de sitios* → busca la IP del servidor → **Eliminar**.
+
+### 1.7 Servidor online (Ubuntu)
+* **Instalar** (una vez): ver **5.2**:
+  ```
+  sudo apt-get update && sudo apt-get install -y git
+  git clone https://github.com/zastarbe/HernaniRacing.git
+  cd HernaniRacing/Server && sudo ./install.sh
+  ```
+  Abre también 7777 UDP y 8080 TCP en el panel de tu proveedor.
+* **Actualizar** a una versión nueva: `cd ~/HernaniRacing && git pull && cd Server && sudo ./install.sh` (se conserva la configuración).
+  Si también cambió la web, repite 1.6.
+* **Parar / arrancar:** `sudo systemctl stop hernani-server` / `sudo systemctl start hernani-server`.
+* **Desinstalar sin dejar rastro:** ver **5.9**: `cd ~/HernaniRacing/Server && sudo ./uninstall.sh`
+  (o `--todo` para no preguntar). Luego borra las reglas de 7777 UDP y 8080 TCP en el panel del proveedor.
+
+### 1.8 Quitar el proyecto de Unity de tu PC
+1. **Unity Hub → Projects**, en el proyecto: **⋯ → Remove project from list**.
+2. Borra la carpeta del proyecto (con `Library/`, que es la caché de Unity y ocupa varios GB) y las carpetas de los builds (`HernaniPC`, `HernaniWeb`).
+3. Ajustes de las pruebas en el editor: `Remove-Item -Recurse "HKCU:\Software\Unity\UnityEditor\DefaultCompany\HernaniRacing"` (PowerShell).
+4. *(Opcional)* Para quitar Unity entero: **Unity Hub → Installs → ⋯ → Uninstall**.
 
 ---
 
@@ -362,6 +475,7 @@ Assets/HernaniRacing/
   Resources/HernaniData/    meta.json, roads.json (con sentidos/señales OSM), buildings.json, scenery.json, heightmap.bytes
   Resources/HernaniCars/    cars.json + un JSON por coche (malla, colores, ruedas y física)
   Resources/HernaniOrtho/   Ortofoto b5m 2025: orto_<x>_<z>.jpg (2048 px = 1 km, 0,5 m/px) y ortho.json
+  Resources/HernaniTerrain/ TerrainMaterial.mat: material del terreno (lo crea el editor solo; hace que el suelo se vea en los builds)
   Scripts/Runtime/
     GameBootstrap.cs        Punto de entrada: cámara, sol, niebla, carga y flujo del juego
     MainMenu.cs             Menús: presentación con resúmenes, pantalla de coche y navegación entre pantallas
@@ -492,7 +606,7 @@ sudo systemctl disable --now hernani-server   # pararlo y que no arranque más
 Cada vez que cambies el juego hay que repartir el ejecutable nuevo a todos: si las versiones no coinciden, no os deja entrar en la misma sala.
 
 ### 5.4b La versión web (navegador) en tu servidor
-1. Haz el build web siguiendo el **paso a paso del apartado 1.1** (Unity 6.3: menú *Hernani Racing → 3*, *File → Build Profiles → Web*).
+1. Haz el build web siguiendo el **paso a paso del apartado 1.5** (Unity 6.3: menú *Hernani Racing → 3*, *File → Build Profiles → Web*).
    Usa el proyecto con tu `server_default.json` (el zip personal): así la web ya trae el servidor y los chavales sólo escriben su nombre.
 2. Sube esa carpeta al servidor (comprimida en ZIP, por ejemplo con WinSCP o `scp HernaniWeb.zip usuario@IP:`).
 3. En el servidor: `cd HernaniRacing/Server && sudo ./install-web.sh ~/HernaniWeb.zip`

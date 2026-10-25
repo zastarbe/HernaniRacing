@@ -28,10 +28,111 @@ namespace HernaniRacing.EditorTools
                 EditorBuildSettings.scenes = list.ToArray();
             }
             IncludeShaders();
+            PrepareTerrainForBuilds();
             Debug.Log("[Hernani Racing] Escena creada en " + ScenePath + ". Pulsa Play.");
         }
 
-        [MenuItem("Hernani Racing/2. Incluir shaders para builds", false, 2)]
+        /// <summary>
+        /// Deja el proyecto listo para el ejecutable de PC: escena en la lista del build, shaders, material del terreno
+        /// guardado en Resources, huecos del terreno (bocas de los túneles) activados en URP y sin "Strict shader matching".
+        /// </summary>
+        [MenuItem("Hernani Racing/2. Preparar build de PC (Windows)", false, 2)]
+        public static void PreparePC()
+        {
+            AddSceneToBuild();
+            IncludeShaders();
+            string info = PrepareTerrainForBuilds();
+            AssetDatabase.SaveAssets();
+            EditorUtility.DisplayDialog("Hernani Racing", "Proyecto preparado para el ejecutable de PC:\n\n" + info +
+                "\nAhora: File → Build Profiles → Windows → Switch Platform (si hace falta) → Build, en una carpeta vacía.", "OK");
+        }
+
+        static void AddSceneToBuild()
+        {
+            if (!File.Exists(ScenePath)) return;
+            var list = new List<EditorBuildSettingsScene>(EditorBuildSettings.scenes);
+            if (!list.Exists(s => s.path == ScenePath))
+            {
+                list.Insert(0, new EditorBuildSettingsScene(ScenePath, true));
+                EditorBuildSettings.scenes = list.ToArray();
+            }
+        }
+
+        public const string TerrainMatFolder = "Assets/HernaniRacing/Resources/HernaniTerrain";
+        public const string TerrainMatPath = TerrainMatFolder + "/TerrainMaterial.mat";
+
+        /// <summary>
+        /// El terreno se crea por código, así que en un build Unity no ve ningún terreno ni ningún material de terreno y
+        /// recorta sus shaders (el suelo sale invisible en el .exe, con colores y con ortofoto). Un material de terreno
+        /// guardado en Resources obliga a meter el shader con sus variantes. Devuelve un resumen.
+        /// </summary>
+        public static string PrepareTerrainForBuilds()
+        {
+            var sb = new System.Text.StringBuilder();
+            bool srp = UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline != null;
+            Shader sh = null;
+            if (srp) sh = Shader.Find("Universal Render Pipeline/Terrain/Lit");
+            if (sh == null) sh = Shader.Find("Nature/Terrain/Standard");
+            if (sh == null) sh = Shader.Find("Nature/Terrain/Diffuse");
+            if (sh == null) sb.AppendLine("• ¡No se encuentra ningún shader de terreno!");
+            else
+            {
+                var m = AssetDatabase.LoadAssetAtPath<Material>(TerrainMatPath);
+                if (m == null)
+                {
+                    Directory.CreateDirectory(TerrainMatFolder);
+                    m = new Material(sh) { name = "TerrainMaterial", enableInstancing = true };
+                    AssetDatabase.CreateAsset(m, TerrainMatPath);
+                    Debug.Log("[Hernani Racing] Creado " + TerrainMatPath + " (" + sh.name + ")");
+                }
+                else if (m.shader != sh)
+                {
+                    m.shader = sh;
+                    m.enableInstancing = true;
+                    EditorUtility.SetDirty(m);
+                    Debug.Log("[Hernani Racing] " + TerrainMatPath + " ahora usa " + sh.name);
+                }
+                sb.AppendLine("• Material del terreno: " + sh.name);
+            }
+
+            // URP: sin "Terrain Holes" el build quita las variantes con huecos y las bocas de los túneles salen tapadas
+            int holes = 0;
+            if (srp)
+            {
+                var assets = new List<Object>();
+                if (UnityEngine.Rendering.GraphicsSettings.defaultRenderPipeline != null) assets.Add(UnityEngine.Rendering.GraphicsSettings.defaultRenderPipeline);
+                for (int i = 0; i < QualitySettings.names.Length; i++)
+                {
+                    var a = QualitySettings.GetRenderPipelineAssetAt(i);
+                    if (a != null && !assets.Contains(a)) assets.Add(a);
+                }
+                foreach (var a in assets)
+                {
+                    var so = new SerializedObject(a);
+                    var prop = so.FindProperty("m_SupportsTerrainHoles");
+                    if (prop != null && !prop.boolValue)
+                    {
+                        prop.boolValue = true;
+                        so.ApplyModifiedProperties();
+                        EditorUtility.SetDirty(a);
+                        holes++;
+                    }
+                }
+                sb.AppendLine("• URP: huecos del terreno (túneles) activados" + (holes > 0 ? " en " + holes + " asset(s)" : ""));
+            }
+#if UNITY_2022_1_OR_NEWER
+            // con "Strict shader variant matching" una variante que falte sale rosa en vez de usar la más parecida
+            if (PlayerSettings.strictShaderVariantMatching)
+            {
+                PlayerSettings.strictShaderVariantMatching = false;
+                sb.AppendLine("• Strict shader variant matching: desactivado");
+            }
+#endif
+            AssetDatabase.SaveAssets();
+            return sb.ToString();
+        }
+
+        [MenuItem("Hernani Racing/Incluir shaders para builds", false, 30)]
         public static void IncludeShaders()
         {
             // Los materiales se crean en código, así que los shaders deben ir siempre en el build.
@@ -102,6 +203,7 @@ namespace HernaniRacing.EditorTools
                 }
             }
             IncludeShaders();
+            PrepareTerrainForBuilds();
             AssetDatabase.SaveAssets();
             Debug.Log("[Hernani Racing] Ajustes web listos: Gzip, sin fallback, caché de datos, memoria máx. 4096 MB, stripping Minimal.");
             EditorUtility.DisplayDialog("Hernani Racing", "Ajustes del build web preparados:\n\n" +
@@ -173,6 +275,7 @@ namespace HernaniRacing.EditorTools
         public void OnPreprocessBuild(UnityEditor.Build.Reporting.BuildReport report)
         {
             HernaniRacingMenu.IncludeShaders();
+            HernaniRacingMenu.PrepareTerrainForBuilds();
             if (report.summary.platform == BuildTarget.WebGL)
             {
                 if (PlayerSettings.WebGL.compressionFormat == WebGLCompressionFormat.Brotli)
@@ -180,6 +283,26 @@ namespace HernaniRacing.EditorTools
                 if (PlayerSettings.WebGL.maximumMemorySize < 4096)
                     Debug.LogWarning("[Hernani Racing] Web: Maximum Memory Size = " + PlayerSettings.WebGL.maximumMemorySize + " MB; se recomienda 4096 (menú Hernani Racing > 3).");
             }
+        }
+    }
+
+    /// <summary>
+    /// Al abrir el proyecto (o al recompilar) crea el material del terreno en Resources si falta, para que esté
+    /// ya importado antes del primer build.
+    /// </summary>
+    [InitializeOnLoad]
+    static class HernaniRacingAutoSetup
+    {
+        static HernaniRacingAutoSetup()
+        {
+            EditorApplication.delayCall += Run;
+        }
+
+        static void Run()
+        {
+            if (EditorApplication.isPlayingOrWillChangePlaymode || BuildPipeline.isBuildingPlayer) return;
+            if (AssetDatabase.LoadAssetAtPath<Material>(HernaniRacingMenu.TerrainMatPath) != null) return;
+            HernaniRacingMenu.PrepareTerrainForBuilds();
         }
     }
 }
