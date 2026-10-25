@@ -254,7 +254,8 @@ namespace HernaniRacing
             var pi = room != null ? room.Find(id) : null;
             if (pi == null || !pi.inGame) return null;
             var color = NetSession.IntToColor(pi.profile.color);
-            var car = CarModels.Create(pi.profile.carId, "Coche " + pi.profile.nick, color, false);
+            string perf = room.settings != null ? room.settings.aiCar : null;   // todos con las prestaciones del coche del líder
+            var car = CarModels.Create(pi.profile.carId, "Coche " + pi.profile.nick, color, false, perf);
             car.Teleport(new Vector3(s.px, s.py, s.pz), new Quaternion(s.qx, s.qy, s.qz, s.qw));
             var nc = Register(id, 0, car, true, pi.profile.nick, color);
             if (traffic != null) traffic.drivers.Add(car);

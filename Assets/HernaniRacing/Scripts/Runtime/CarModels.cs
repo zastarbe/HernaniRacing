@@ -172,10 +172,16 @@ namespace HernaniRacing
         /// Crea un coche con su modelo, colisionadores y físicas propias. Si el modelo no existe se usa el
         /// coche low poly generado en código.
         /// </summary>
-        public static CarController Create(string id, string goName, Color paint, bool isPlayer)
+        /// <param name="perfId">Online: modelo del que se copian las prestaciones (el coche del líder); null o vacío = las suyas.</param>
+        public static CarController Create(string id, string goName, Color paint, bool isPlayer, string perfId = null)
         {
             var d = Get(id);
-            if (d == null || d.body == null) return LowPolyCar.Create(goName, paint, isPlayer);
+            if (d == null || d.body == null)
+            {
+                var lp = LowPolyCar.Create(goName, paint, isPlayer);
+                if (!string.IsNullOrEmpty(perfId) && lp != null) lp.ApplyPerformance(Get(perfId));
+                return lp;
+            }
 
             var go = new GameObject(goName);
             go.AddComponent<Rigidbody>();
@@ -223,6 +229,7 @@ namespace HernaniRacing
                 car.wheelVisuals[i] = w.transform;
             }
             SetupLod(go, lod0, lod1);
+            if (!string.IsNullOrEmpty(perfId) && perfId != id) car.ApplyPerformance(Get(perfId));
             if (isPlayer) go.AddComponent<EngineAudio>().car = car;
             return car;
         }

@@ -11,6 +11,7 @@ namespace HernaniRacing
         public int opponents = 3;
         public int difficulty = 1;   // 0 fácil, 1 normal, 2 difícil
         public string carId = "turismo";                 // modelo (Resources/HernaniCars); los rivales llevan el mismo
+        public string perfCarId = "";                    // online: coche del líder, cuyas prestaciones llevan todos (vacío = las del propio)
         public Color paint = new Color(0.85f, 0.08f, 0.1f);
         public bool traffic = false, pedestrians = true;          // carrera
         public bool freeTraffic = true, freePedestrians = true;   // paseo libre
@@ -235,7 +236,8 @@ namespace HernaniRacing
                 bool me = p.id == net.MyId;
                 var col = me ? settings.paint : NetSession.IntToColor(p.profile.color);
                 var r = new Racer { name = p.profile.nick, isPlayer = me, color = col, remote = !me };
-                r.car = CarModels.Create(me ? settings.carId : p.profile.carId, me ? "Coche jugador" : "Coche " + p.profile.nick, col, me);
+                // todos con las prestaciones del coche del líder (aiCarId); cada uno con el aspecto que ha elegido
+                r.car = CarModels.Create(me ? settings.carId : p.profile.carId, me ? "Coche jugador" : "Coche " + p.profile.nick, col, me, aiCarId);
                 if (me) { r.car.gameObject.AddComponent<PlayerDriver>().car = r.car; player = r; }
                 else r.net = new NetCar { owner = p.id };
                 racers.Add(r);
@@ -244,7 +246,7 @@ namespace HernaniRacing
             {
                 // no debería pasar: por si acaso, un coche propio al final
                 var r = new Racer { name = net.nick, isPlayer = true, color = settings.paint };
-                r.car = CarModels.Create(settings.carId, "Coche jugador", settings.paint, true);
+                r.car = CarModels.Create(settings.carId, "Coche jugador", settings.paint, true, aiCarId);
                 r.car.gameObject.AddComponent<PlayerDriver>().car = r.car;
                 player = r;
                 racers.Add(r);
@@ -566,7 +568,7 @@ namespace HernaniRacing
                         finishedAt = Clock;
                         Flash("¡META!", 3f);
                         // online: mi mejor vuelta va al ranking del circuito en el servidor (sólo jugadores, no la IA)
-                        if (online && net != null) net.Core.SendRaceResult(r.bestLap, r.finishTime, settings.carId, (byte)Laps);
+                        if (online && net != null) net.Core.SendRaceResult(r.bestLap, r.finishTime, string.IsNullOrEmpty(aiCarId) ? settings.carId : aiCarId, (byte)Laps);   // el coche de las prestaciones (el del líder)
                     }
                 }
             }

@@ -31,6 +31,15 @@ namespace HernaniRacing
         public MenuScreen Screen { get { return screen; } }
         public bool InRoom { get { return net != null && net.InRoom; } }
         public bool IsLeader { get { return net != null && net.IsLeader; } }
+        /// <summary>En una sala online (sin ser el líder): el coche del líder, cuyas prestaciones usan todos.</summary>
+        public CarModelData RoomPerfCar
+        {
+            get
+            {
+                if (!InRoom || IsLeader || net.Room == null || net.Room.settings == null) return null;
+                return CarModels.Get(net.Room.settings.aiCar);
+            }
+        }
         /// <summary>En una sala online y sin ser el líder: el circuito y la carrera los decide el líder.</summary>
         public bool RaceLocked { get { return InRoom && !net.IsLeader; } }
         MenuScreen Hub { get { return InRoom ? MenuScreen.Online : MenuScreen.Title; } }
@@ -333,7 +342,7 @@ namespace HernaniRacing
             DrawCards(x0, y, cardW, cardH, gap, false);
 
             GUI.Label(new Rect(60, 1080 - 34, W - 120, 24),
-                "Datos y ortofoto: © b5m Gipuzkoa (CC BY) · © geoEuskadi · © IGN (MDT05) · © OpenStreetMap contributors (ODbL) · tráfico: aforos DFG / Open Data Euskadi · coches propios (CC0)", small);
+                "Datos y ortofoto: © b5m Gipuzkoa · © geoEuskadi · © IGN (MDT05) · SITNA – Gobierno de Navarra (CC BY) · © OpenStreetMap (ODbL) · tráfico: DFG / Open Data Euskadi · coches CC0", small);
         }
 
         static readonly string[][] KeysDrive =
@@ -448,7 +457,11 @@ namespace HernaniRacing
             var md = CarModels.Get(s.carId);
             float ty = img.yMax + 8;
             GUI.Label(new Rect(r.x + 18, ty, r.width - 36, 28), md != null ? md.name : s.carId, new GUIStyle(h2) { normal = { textColor = Color.white } });
-            if (md != null)
+            var rp = RoomPerfCar;
+            if (rp != null)
+                GUI.Label(new Rect(r.x + 18, ty + 30, r.width - 36, 46),
+                    "Prestaciones de la sala: " + rp.name + " · " + (rp.maxSpeed * 3.6f).ToString("F0") + " km/h", small);
+            else if (md != null)
                 GUI.Label(new Rect(r.x + 18, ty + 30, r.width - 36, 46),
                     md.category + " · " + (md.maxSpeed * 3.6f).ToString("F0") + " km/h · " + md.mass.ToString("F0") + " kg", small);
             if (GUI.Button(new Rect(r.x + 18, r.yMax - 64, r.width - 36, 48), "Cambiar coche", midBtn)) Go(MenuScreen.Car);
@@ -630,7 +643,21 @@ namespace HernaniRacing
             else CarText.TryGetValue(s.carId, out desc);
             GUILayout.Label((md != null ? md.category : "") + (string.IsNullOrEmpty(desc) ? "" : " · " + desc), txt);
             GUILayout.Space(6);
-            if (md != null)
+            var roomCar = RoomPerfCar;
+            if (roomCar != null)
+            {
+                // online: todos corren con las prestaciones del coche del líder; aquí sólo se elige el aspecto
+                GUILayout.Label("En esta sala todos corréis con la potencia y las características del coche del líder: " + roomCar.name +
+                                ". Aquí eliges el aspecto: el modelo y el color.", txt);
+                var rc = roomCar;
+                Stat("Velocidad punta", rc.maxSpeed / maxSpd, (rc.maxSpeed * 3.6f).ToString("F0") + " km/h");
+                Stat("Aceleración", (rc.engine / rc.mass) / maxAcc, "");
+                Stat("Frenada", (rc.brake / rc.mass) / maxBrk, "");
+                Stat("Agarre", rc.grip / maxGrip, rc.grip.ToString("F2") + " g");
+                if (md != null)
+                    GUILayout.Label("Peso " + rc.mass.ToString("F0") + " kg  ·  Largo " + md.size[2].ToString("F1") + " m  ·  Ancho " + md.size[0].ToString("F1") + " m", small);
+            }
+            else if (md != null)
             {
                 Stat("Velocidad punta", md.maxSpeed / maxSpd, (md.maxSpeed * 3.6f).ToString("F0") + " km/h");
                 Stat("Aceleración", (md.engine / md.mass) / maxAcc, "");
@@ -654,7 +681,8 @@ namespace HernaniRacing
                 GUI.backgroundColor = c0;
             }
             GUILayout.EndHorizontal();
-            GUILayout.Label(InRoom ? "Los demás jugadores verán tu coche con este color." : "Los rivales de la IA llevan el mismo modelo, cada uno con su color.", small);
+            GUILayout.Label(InRoom ? (IsLeader ? "Los demás verán tu coche con este color. Todos los de la sala correrán con la potencia y las características de este coche."
+                                              : "Los demás jugadores verán tu coche con este color.") : "Los rivales de la IA llevan el mismo modelo, cada uno con su color.", small);
             GUILayout.FlexibleSpace();
             if (GUILayout.Button("LISTO", midBtn, GUILayout.Height(60))) pending = Back;
             GUILayout.EndArea();

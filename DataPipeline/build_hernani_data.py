@@ -12,6 +12,8 @@ Descarga y procesa datos oficiales de:
       - Hidrografía (Urumea y arroyos)               GFA_DSET_HYD
   * geoEuskadi (Gobierno Vasco) - MDT LiDAR 1 m (servicio WCS_KARTOGRAFIA)
       Fallback automático: MDT05 del IGN/IDEE (WCS) si geoEuskadi no responde.
+  * SITNA / IDENA (Gobierno de Navarra) - CC BY 4.0: la parte del rectángulo que cae en Navarra (Arano, Goizueta):
+      viales, edificios con altura catastral, hidrografía y toponimia (ver navarra.py).
       También puedes pasar un GeoTIFF descargado a mano con --dtm.
 
 Genera en  <Unity>/Assets/HernaniRacing/Resources/HernaniData/ :
@@ -21,7 +23,7 @@ Uso:
   pip install -r requirements.txt
   python build_hernani_data.py                       # todo automático
   python build_hernani_data.py --dtm mdt_lidar.tif   # MDT local de geoEuskadi
-  python build_hernani_data.py --bounds 580450 4785950 590150 4793100 --cell 2
+  python build_hernani_data.py --bounds 580450 4779806 590150 4793100 --cell 2
 
 Sistema de referencia: ETRS89 / UTM 30N (EPSG:25830). En Unity:
   x = E - origenE ;  z = N - origenN ;  y = altitud ortométrica (m)
@@ -53,6 +55,7 @@ try:
     from scipy.ndimage import gaussian_filter, map_coordinates, binary_dilation
     from scipy.spatial import cKDTree
     import networkx as nx
+    import navarra
 except ImportError as e:  # pragma: no cover
     sys.exit(f"Falta una dependencia ({e}). Ejecuta: pip install -r requirements.txt")
 
@@ -61,9 +64,12 @@ DEFAULT_OUT = os.path.normpath(os.path.join(HERE, "..", "Assets", "HernaniRacing
 CACHE = os.path.join(HERE, "cache")
 # descargas grandes (GPKG de b5m y MDT): se puede llevar a otra carpeta con HERNANI_CACHE
 BIG_CACHE = os.environ.get("HERNANI_CACHE", CACHE)
-# Área por defecto: todo el término de Hernani al norte de Ugaldetxo (+ ~300 m de valle al sur) y lo que queda
-# dentro del rectángulo (Urnieta, Astigarraga, parte de Martutene). UTM30 ETRS89: W S E N
-DEFAULT_BOUNDS = [580450, 4785950, 590150, 4793100]
+# Área por defecto (desde la v15): TODO el término municipal de Hernani (39,8 km²; su límite va de E 580682 a 589934 y
+# de N 4780542 a 4792770) y todo lo que queda dentro del rectángulo: Urnieta, Astigarraga, parte de Martutene y de
+# los pueblos vecinos del sur (Andoain, Elduain, Arano, Goizueta...). 10 x 13 teselas de 1024 m.
+# El borde sur está 6 teselas (6144 m) más al sur que hasta la v14 (4785950), para que las teselas de antes
+# (y la ortofoto) sigan siendo las mismas. UTM30 ETRS89: W S E N
+DEFAULT_BOUNDS = [580450, 4779806, 590150, 4793100]
 DEFAULT_CELL = 2.0          # m entre muestras del heightmap
 TILE_CELLS = 512            # teselas de terreno de Unity: 512 x 512 celdas (513² muestras) -> 1024 m con celdas de 2 m
 
@@ -260,7 +266,7 @@ def densify(coords, step):
     return out
 
 
-def build_roads(pathw_path, bbox, origin, size, sampler, args):
+def build_roads(pathw_path, bbox, origin, size, sampler, args, nav=None):
     x0, y0, x1, y1 = bbox
     margin = 25
     inner = box(x0 + margin, y0 + margin, x1 - margin, y1 - margin)
@@ -270,6 +276,8 @@ def build_roads(pathw_path, bbox, origin, size, sampler, args):
     v = v[~v.NAME.str.match(r"^E\d+$")]           # rutas europeas duplicadas
     if args.no_motorways:
         v = v[~v.NAME.str.match(MOTORWAY_RE)]
+    if nav is not None:
+        v = navarra.merge_roads(v, nav, log)          # la parte de Navarra (IDENA), empalmada en la muga
     v["geometry"] = v.geometry.intersection(inner)
     v = v[~v.geometry.is_empty].explode(index_parts=False)
     v = v[v.geom_type == "LineString"]
@@ -1023,11 +1031,13 @@ def tunnel_portals(edges):
 
 
 # --------------------------------------------------------------------------- rivers
-def build_rivers(hyd_path, bbox, origin, sampler):
+def build_rivers(hyd_path, bbox, origin, sampler, nav=None):
     x0, y0, x1, y1 = bbox
     inner = box(x0 + 5, y0 + 5, x1 - 5, y1 - 5)
     h = gpd.read_file(hyd_path, bbox=bbox)
     h = h[h.HIDDEN.astype(str) != "1"] if "HIDDEN" in h.columns else h
+    if nav is not None:
+        h = navarra.merge_rivers(h, nav, log)
     h["geometry"] = h.geometry.intersection(inner)
     h = h[~h.geometry.is_empty].explode(index_parts=False)
     h = h[h.geom_type == "LineString"]
@@ -1059,10 +1069,12 @@ def build_rivers(hyd_path, bbox, origin, sampler):
 
 
 # --------------------------------------------------------------------------- buildings
-def build_buildings(bu_path, bbox, origin, size, Hs, edges):
+def build_buildings(bu_path, bbox, origin, size, Hs, edges, nav=None):
     x0, y0, x1, y1 = bbox
     inner = box(x0 + 2, y0 + 2, x1 - 2, y1 - 2)
     b = gpd.read_file(bu_path, bbox=bbox)
+    if nav is not None:
+        b = navarra.merge_buildings(b, nav, log)
     b = b[b.geometry.within(inner)]
     b = b.explode(index_parts=False)
     b = b[b.geom_type == "Polygon"]
@@ -1158,9 +1170,11 @@ def build_buildings(bu_path, bbox, origin, size, Hs, edges):
 
 
 # --------------------------------------------------------------------------- toponymy
-def build_places(topon_path, bbox, origin, Hs):
+def build_places(topon_path, bbox, origin, Hs, nav=None):
     x0, y0, x1, y1 = bbox
     t = gpd.read_file(topon_path, bbox=bbox, ignore_geometry=True)
+    if nav is not None:
+        t = navarra.merge_places(t, nav, log)
     zones, landmarks = [], []
     zone_types = {"barrio", "barrio y/o nombre urbano", "núcleo urbano", "polígono industrial",
                   "parque urbano", "parque tecnológico", "rotonda", "puente"}
@@ -1359,7 +1373,7 @@ def check_presets(node_xy, edges, origin):
 def main():
     ap = argparse.ArgumentParser(description="Genera los datos reales de Hernani para Unity")
     ap.add_argument("--bounds", nargs=4, type=float, default=DEFAULT_BOUNDS, metavar=("W", "S", "E", "N"),
-                    help="Rectángulo en UTM30 ETRS89 (por defecto: Hernani hasta Ugaldetxo)")
+                    help="Rectángulo en UTM30 ETRS89 (por defecto: todo el término de Hernani)")
     ap.add_argument("--center", nargs=2, type=float, help="(alternativa) centro de un área cuadrada (E N)")
     ap.add_argument("--size", type=float, help="(con --center) lado del área cuadrada en metros")
     ap.add_argument("--cell", type=float, default=DEFAULT_CELL, help="Separación del heightmap en metros (2 m)")
@@ -1369,6 +1383,7 @@ def main():
     ap.add_argument("--no-motorways", action="store_true", help="Excluir A-15/AP-1/AP-8")
     ap.add_argument("--out", default=DEFAULT_OUT)
     ap.add_argument("--no-osm", action="store_true", help="No añadir sentidos/semáforos/señales de OpenStreetMap")
+    ap.add_argument("--no-navarra", action="store_true", help="No completar la parte de Navarra con los datos de IDENA (SITNA)")
     args = ap.parse_args()
 
     cell = float(args.cell)
@@ -1390,19 +1405,25 @@ def main():
         f" a {cell} m, {cx_n // TILE_CELLS} x {cz_n // TILE_CELLS} teselas de {TILE_CELLS * cell:.0f} m)")
 
     paths = {k: cached_download(k, u) for k, u in B5M_DATASETS.items()}
+    nav = None
+    if not args.no_navarra:
+        try:
+            nav = navarra.load(bbox, CACHE, log)
+        except Exception as ex:  # noqa: BLE001
+            log(f"AVISO: sin datos de Navarra de IDENA ({ex}); esa parte quedará sin calles ni edificios")
     H, dtm_src = load_dtm(args, bbox, gx, gz, cell)
     Hs_raw = HeightSampler(H, cell)
     log(f"Altitudes: {H.min():.1f} - {H.max():.1f} m")
 
-    node_list, node_xy, node_h, edges = build_roads(paths["pathw"], bbox, origin, None, Hs_raw, args)
-    rivers = build_rivers(paths["hyd"], bbox, origin, Hs_raw)
+    node_list, node_xy, node_h, edges = build_roads(paths["pathw"], bbox, origin, None, Hs_raw, args, nav)
+    rivers = build_rivers(paths["hyd"], bbox, origin, Hs_raw, nav)
     grade_separation(edges, node_h)
     log("Tallando calles y cauces en el terreno...")
     Hc, holes = carve_terrain(H, cell, edges, rivers)
     del H
     Hs = HeightSampler(Hc, cell)
-    buildings = build_buildings(paths["bu"], bbox, origin, None, Hs, edges)
-    zones, landmarks = build_places(paths["topon"], bbox, origin, Hs)
+    buildings = build_buildings(paths["bu"], bbox, origin, None, Hs, edges, nav)
+    zones, landmarks = build_places(paths["topon"], bbox, origin, Hs, nav)
     trees = build_trees(Hc, cell, edges, buildings, rivers)
     presets = check_presets(node_xy, edges, origin)
 
@@ -1438,7 +1459,7 @@ def main():
         "attribution": [
             "Viales, edificios, toponimia e hidrografía: b5m - IDE de Gipuzkoa, Diputación Foral de Gipuzkoa (CC BY 4.0)",
             f"Modelo digital del terreno: {dtm_src}",
-        ],
+        ] + ([navarra.ATTRIBUTION] if nav is not None else []),
         "presets": presets,
     }
     with open(os.path.join(args.out, "meta.json"), "w", encoding="utf8") as f:

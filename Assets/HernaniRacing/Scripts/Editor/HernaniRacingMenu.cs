@@ -60,6 +60,7 @@ namespace HernaniRacing.EditorTools
 
         public const string TerrainMatFolder = "Assets/HernaniRacing/Resources/HernaniTerrain";
         public const string TerrainMatPath = TerrainMatFolder + "/TerrainMaterial.mat";
+        public const string InstancedMatPath = TerrainMatFolder + "/InstancedLit.mat";
 
         /// <summary>
         /// El terreno se crea por código, así que en un build Unity no ve ningún terreno ni ningún material de terreno y
@@ -93,6 +94,52 @@ namespace HernaniRacing.EditorTools
                     Debug.Log("[Hernani Racing] " + TerrainMatPath + " ahora usa " + sh.name);
                 }
                 sb.AppendLine("• Material del terreno: " + sh.name);
+            }
+
+            // Variantes INSTANCING_ON del shader Lit. Con "Instancing Variants = Strip Unused" (lo normal) Unity sólo las
+            // mete si algún material del build tiene "Enable GPU Instancing", y todos los materiales se crean por código.
+            // Los árboles ya no dependen de esto (desde la v15 se dibujan con mallas normales); se deja como seguro para
+            // los materiales del juego que piden instancing.
+            {
+                Shader lit = null;
+                if (srp) lit = Shader.Find("Universal Render Pipeline/Lit");
+                if (lit == null) lit = Shader.Find("Standard");
+                if (lit == null) sb.AppendLine("• ¡No se encuentra el shader Lit!");
+                else
+                {
+                    Directory.CreateDirectory(TerrainMatFolder);
+                    var im = AssetDatabase.LoadAssetAtPath<Material>(InstancedMatPath);
+                    if (im == null)
+                    {
+                        im = new Material(lit) { name = "InstancedLit", enableInstancing = true };
+                        if (im.HasProperty("_Smoothness")) im.SetFloat("_Smoothness", 0f);
+                        if (im.HasProperty("_Glossiness")) im.SetFloat("_Glossiness", 0f);
+                        AssetDatabase.CreateAsset(im, InstancedMatPath);
+                        Debug.Log("[Hernani Racing] Creado " + InstancedMatPath + " (" + lit.name + ", GPU instancing)");
+                    }
+                    else if (im.shader != lit || !im.enableInstancing)
+                    {
+                        im.shader = lit;
+                        im.enableInstancing = true;
+                        EditorUtility.SetDirty(im);
+                    }
+                    sb.AppendLine("• Material con GPU instancing: " + lit.name);
+                }
+            }
+            // Project Settings > Graphics > Instancing Variants: con "Strip All" no queda ninguna variante con instancing
+            {
+                var gsAsset = AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/GraphicsSettings.asset");
+                if (gsAsset != null && gsAsset.Length > 0 && gsAsset[0] != null)
+                {
+                    var gso = new SerializedObject(gsAsset[0]);
+                    var ip = gso.FindProperty("m_InstancingStripping");
+                    if (ip != null && ip.intValue == 1)   // 0 Strip Unused, 1 Strip All, 2 Keep All
+                    {
+                        ip.intValue = 0;
+                        gso.ApplyModifiedProperties();
+                        sb.AppendLine("• Instancing Variants: Strip All → Strip Unused");
+                    }
+                }
             }
 
             // URP: sin "Terrain Holes" el build quita las variantes con huecos y las bocas de los túneles salen tapadas
@@ -301,7 +348,8 @@ namespace HernaniRacing.EditorTools
         static void Run()
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode || BuildPipeline.isBuildingPlayer) return;
-            if (AssetDatabase.LoadAssetAtPath<Material>(HernaniRacingMenu.TerrainMatPath) != null) return;
+            if (AssetDatabase.LoadAssetAtPath<Material>(HernaniRacingMenu.TerrainMatPath) != null &&
+                AssetDatabase.LoadAssetAtPath<Material>(HernaniRacingMenu.InstancedMatPath) != null) return;
             HernaniRacingMenu.PrepareTerrainForBuilds();
         }
     }

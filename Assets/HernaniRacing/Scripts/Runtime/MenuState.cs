@@ -164,6 +164,9 @@ namespace HernaniRacing
         }
 
         // ------------------------------------------------------------------ guardar / cargar
+        /// <summary>Identifica los datos del mapa: si cambian (mapa nuevo), los números de cruce guardados ya no valen.</summary>
+        string DataKey { get { return (world.data.meta.generated ?? "") + "|" + world.graph.nodes.Length; } }
+
         public void Load()
         {
             var s = settings;
@@ -188,8 +191,19 @@ namespace HernaniRacing
             s.realTimeTraffic = PlayerPrefs.GetInt("menu.realtime", 0) == 1;
             s.traffic = s.trafficLevel > 0; s.pedestrians = s.pedLevel > 0;
             s.freeTraffic = s.freeTrafficLevel > 0; s.freePedestrians = s.freePedLevel > 0;
-            freeStart = PlayerPrefs.GetInt("menu.free", -1);
+            // con un mapa distinto (v15: área ampliada) los cruces guardados apuntan a otro sitio: se olvidan.
+            // Si lo elegido era un predefinido, se vuelve a poner por su nombre.
+            bool sameData = PlayerPrefs.GetString("menu.data", "") == DataKey;
+            freeStart = sameData ? PlayerPrefs.GetInt("menu.free", -1) : -1;
             if (freeStart >= world.graph.nodes.Length) freeStart = -1;
+            if (!sameData)
+            {
+                string pn = PlayerPrefs.GetString("menu.preset", "");
+                var pr0 = Presets.FirstOrDefault(pr => pr.name == pn);
+                if (pr0 == null && Presets.Length > 0) pr0 = Presets[0];
+                if (pr0 != null) ApplyPreset(pr0);
+                return;
+            }
 
             // circuito: el último que se usó; si no hay o ya no vale, el primero de los predefinidos
             var nodes = new List<int>();
@@ -224,6 +238,7 @@ namespace HernaniRacing
             PlayerPrefs.SetInt("menu.fpedsLv", s.freePedLevel);
             PlayerPrefs.SetInt("menu.realtime", s.realTimeTraffic ? 1 : 0);
             PlayerPrefs.SetInt("menu.free", freeStart);
+            PlayerPrefs.SetString("menu.data", DataKey);
             PlayerPrefs.SetString("menu.sel", string.Join(",", sel.Select(n => n.ToString()).ToArray()));
             PlayerPrefs.SetString("menu.preset", presetName ?? "");
             PlayerPrefs.SetInt("menu.closed", closed ? 1 : 0);

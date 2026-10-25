@@ -279,7 +279,7 @@ namespace HernaniRacing
             return new RaceSettings
             {
                 laps = rs.laps, opponents = rs.opponents, difficulty = rs.difficulty,
-                carId = myCar, paint = IntToColor(myColor),
+                carId = myCar, paint = IntToColor(myColor), perfCarId = rs.aiCar ?? "",
                 traffic = rs.traffic, pedestrians = rs.pedestrians, freeTraffic = rs.freeTraffic, freePedestrians = rs.freePedestrians
             };
         }

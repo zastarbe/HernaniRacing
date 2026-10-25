@@ -12,6 +12,48 @@ laterales quedan abiertas y la calzada va pegada al terreno real.
 También hay un modo **Paseo libre**: conduces por todo Hernani sin carrera, con tráfico y peatones que respetan
 las señales.
 
+## Novedades (versión 15): todo el término de Hernani, árboles en los builds y coches igualados online
+> ⚠ **Hay que rehacer los builds de PC y web** (1.3 y 1.5) y actualizar el proyecto en todos los PCs. **El servidor no hace falta
+> actualizarlo** (los mensajes online no cambian), pero como el mapa es otro:
+> * un juego v14 y uno v15 no se ven en las mismas salas (cada versión del mapa tiene sus salas);
+> * **los circuitos guardados en el servidor y los rankings de la v14 no pasan a la v15** (los cruces tienen otra numeración).
+>   Siguen en `circuits.json`, pero sólo los ve un juego v14. Los 7 predefinidos son los mismos y empiezan su ranking de cero;
+> * el circuito que tuvieras elegido en el menú se olvida (si era un predefinido, se mantiene).
+>
+> La primera vez que abras el proyecto, Unity importa las 60 fotos aéreas nuevas: tarda unos minutos.
+
+* **Mapa ampliado a todo el término municipal de Hernani.** Antes acababa poco después de Ugaldetxo; ahora llega hasta el límite
+  sur del municipio, junto a Goizueta, y es un rectángulo de **10,2 × 13,3 km** (antes 10,2 × 7,2 km): de E 580450 a 590690 y de
+  N 4779806 a 4793118. Entra todo lo que hay dentro del rectángulo, también de los pueblos vecinos (Urnieta, Astigarraga,
+  Martutene, y ahora también algo de Andoain, Elduain, Arano y Goizueta).
+  * La parte nueva es casi toda monte: unos 75 km más de carreteras, pistas y caminos conectados con el resto, el valle del Urumea
+    aguas arriba de Ugaldetxo, arroyos, caseríos y unos 430.000 árboles en total.
+  * **La parte de Navarra (Arano y una esquina de Goizueta, 14,5 km²) sale con datos del Gobierno de Navarra** (SITNA, servicio
+    IDENA), porque b5m sólo tiene las calles de Gipuzkoa:
+    * 31 km de calles y carreteras: la **NA‑4150** (la continuación de la GI‑3410 hacia Goizueta), la **NA‑4016** que sube a
+      **Arano**, sus calles (Goiko Herria, Beheko Herria…) y los accesos a los caseríos. Se empalman con las de b5m en la muga. Los caminos de
+      monte de Navarra no se han puesto: la mayoría no se conectan con nada.
+    * Los edificios que b5m no tenía, con su altura sacada del catastro de Navarra, y los topónimos (Arano, Beheko Herri,
+      San Roke y los montes).
+    * La foto aérea de b5m acaba en la muga (salía en blanco) y se completa con la **ortofoto 2025 de Navarra**, con el tono igualado.
+  * **Los circuitos predefinidos no cambian**: los 7 tienen el mismo trazado y la misma longitud.
+  * Tamaño: el terreno pasa de 70 a 130 teselas y la carpeta de fotos aéreas, de unos 55 a 100 MB. La carga tarda algo más.
+* **Árboles en el .exe y en la web.** En Unity se veían, pero en los builds (también en el .exe de la v14) no. Se dibujaban
+  con *GPU instancing* (`Graphics.DrawMeshInstanced`), y al hacer el build Unity puede quitar del shader las variantes con
+  instancing: entonces no se dibuja ningún árbol, sin dar ningún error. Ahora los árboles **ya no usan instancing**:
+  * se juntan en una malla por cada bloque de 320 × 320 m y se dibujan como cualquier otro objeto, con la misma variante del
+    shader que los edificios (que siempre está en el build);
+  * cerca (hasta 600 m) se ven con tronco y copa y dan sombra; más lejos y en la vista de mapa, con una copa simplificada;
+  * las mallas se hacen al acercarte y se liberan al alejarte, así que no gastan más memoria que antes.
+  No hay que hacer nada especial antes del build.
+* **Online: todos corren con el coche del líder.** El líder (quien creó la sala) elige su coche. Los demás eligen el que quieran
+  (modelo y color), pero con **la potencia y las características del coche del líder**: velocidad punta, aceleración, frenos,
+  agarre, peso y dirección. Así nadie gana por el coche.
+  * En la pantalla de coche de la sala sale *«En esta sala todos corréis con… el coche del líder»*, con sus datos.
+  * Vale para las carreras online y para el paseo libre online. Offline, cada coche tiene sus prestaciones de siempre.
+  * Si el líder cambia de coche, cambian las prestaciones de todos en la carrera siguiente.
+  * En los rankings, la columna *coche* indica el coche de las prestaciones (el del líder).
+
 ## Novedades (versión 14): circuitos nuevos, circuitos en el servidor y rankings
 > ⚠ **Hay que actualizar el servidor y todos los juegos** (PC y web). Los mensajes online han cambiado (protocolo v2): un juego v13
 > no entra en un servidor v14, ni al revés. Te avisará con *«Tu juego es más antiguo que el servidor»* o al revés.
@@ -240,11 +282,11 @@ Requisitos: **Unity 6.3 LTS** (recomendado) o cualquier versión desde la 2021.3
    Usa **el zip personal** (el que lleva `Assets/HernaniRacing/Resources/HernaniNet/server_default.json`) si quieres que el juego
    traiga ya tu servidor y los chavales sólo escriban su nombre.
 4. *(Opcional)* Copia `DataPipeline/` **junto a** `Assets/` (en la raíz del proyecto) si quieres regenerar los datos.
-5. Abre el proyecto. La primera vez Unity importa las 70 imágenes de la ortofoto (con compresión *crunch*): tarda unos minutos.
+5. Abre el proyecto. La primera vez Unity importa las 130 imágenes de la ortofoto (con compresión *crunch*): tarda unos minutos.
 6. Menú **Hernani Racing → 1. Crear escena de juego**. Se crea `Assets/HernaniRacing/Scenes/Hernani.unity`, se añade a la lista
    de escenas del build y se prepara todo lo que necesitan los builds (shaders y material del terreno).
 7. Pulsa **Play**. Hay una pantalla de carga de unos segundos mientras se construye el mundo
-   (terreno de 10,2 × 7,2 km en 70 teselas, unos 6.750 edificios, unos 206.000 árboles, calles, puentes y túneles).
+   (terreno de 10,2 × 13,3 km en 130 teselas, unos 7.070 edificios, unos 430.000 árboles, calles, puentes y túneles).
    En un PC normal tarda entre 20 y 60 s.
 
 > Si tu proyecto usa **solo** el nuevo Input System (lo habitual en Unity 6), el código lo detecta
@@ -412,7 +454,7 @@ Si un build web falla o se queda en negro: mira la consola del navegador (F12). 
 | Suelo: colores / ortofoto | O | Cruceta ← |
 
 ### Paseo libre
-* Sin vueltas ni rivales: puedes ir por cualquier calle del área (≈ 10 × 7 km, de Martutene a Ugaldetxo).
+* Sin vueltas ni rivales: puedes ir por cualquier calle del área (≈ 10 × 13 km: de Martutene al límite sur de Hernani, junto a Goizueta).
 * El HUD muestra la calle, el barrio, las coordenadas UTM, la altitud, la velocidad y un límite orientativo. En el mapa
   aparecen los cruces con semáforo (en naranja) y los coches del tráfico.
 * Te **avisa** si vas en dirección prohibida por una calle de sentido único, si te saltas un semáforo en rojo o un STOP. Solo son
@@ -451,12 +493,15 @@ opciones para repetir la carrera o elegir otro circuito.
 | Edificios (huella, altura media y máxima LiDAR, soportales) | b5m · `GFA_DSET_BU` | Edificios extruidos a su altura real |
 | Toponimia | b5m · `GFA_DSET_TOPON` | Barrios (Centro, Karabel, Florida, Elizatxo, Portu, Antziola…), polígonos, rotondas |
 | Hidrografía | b5m · `GFA_DSET_HYD` | Río Urumea y arroyos |
-| Modelo digital del terreno | geoEuskadi · MDT LiDAR (WCS `WCS_KARTOGRAFIA`). Si no responde, se usa el MDT05 del IGN/IDEE | Terreno de Unity: 70 teselas de 1024 m (513² cada una), 2 m/píxel; `heightmap.bytes` comprimido |
+| Parte de Navarra (Arano, Goizueta) | SITNA / IDENA (WFS `idena.navarra.es/ogc/wfs`): `CARBTA_Lin_RedViaria` (ejes), `CARBTA_Pol_EdiPobCons`, `DIRECC_Pol_Edifaltura`, `HIDROG_Lin_CorrienteNatural`, `TOPONI_Txt_Toponimos`, `DIADMI_Pol_Municipio`. Lo hace `DataPipeline/navarra.py` (se puede quitar con `--no-navarra`) | Calles y carreteras (NA‑4150, NA‑4016) empalmadas con las de b5m en la muga, edificios con altura catastral, regatas y topónimos |
+| Modelo digital del terreno | geoEuskadi · MDT LiDAR (WCS `WCS_KARTOGRAFIA`). Si no responde, se usa el MDT05 del IGN/IDEE | Terreno de Unity: 130 teselas de 1024 m (513² cada una), 2 m/píxel; `heightmap.bytes` comprimido |
 
-* Área: un rectángulo de **10.240 × 7.168 m**, de E 580450 a 590690 y de N 4785950 a 4793118 (ETRS89 / UTM 30N, EPSG:25830).
-  Cubre todo el término de Hernani al norte de Ugaldetxo (el término llega más al sur, hasta Goizueta, pero esa parte queda fuera),
-  y además Urnieta, Astigarraga y los barrios vecinos.
-* En Unity: `x = E − 580450`, `z = N − 4785950`, `y = altitud real (m)`. **1 unidad = 1 metro.**
+* Área (desde la v15): un rectángulo de **10.240 × 13.312 m**, de E 580450 a 590690 y de N 4779806 a 4793118 (ETRS89 / UTM 30N,
+  EPSG:25830). Cubre **todo el término municipal de Hernani** (según OpenStreetMap / Nominatim: E 580682–589934, N 4780542–4792770)
+  y todo lo que cae dentro del rectángulo: Urnieta, Astigarraga, Martutene y trozos de Andoain, Elduain, Arano y Goizueta.
+  b5m sólo cubre Gipuzkoa: la parte de Navarra (Arano y Goizueta, 14,5 km²) se completa con los datos de IDENA (ver la tabla).
+* En Unity: `x = E − 580450`, `z = N − 4779806`, `y = altitud real (m)`. **1 unidad = 1 metro.** (Hasta la v14 el origen era
+  N 4785950: las `z` antiguas son las nuevas menos 6144.)
 * El terreno se ajusta bajo las calzadas y los cauces. Las pendientes de las calles se limitan a valores
   físicos para eliminar artefactos del MDT junto a muros y taludes: 24 % en calles, 12 % en carreteras y 7 % en autovías.
 * **El terreno es el suelo por el que se conduce.** Las calles se modelan en el propio relieve, con una mezcla suave
@@ -490,7 +535,7 @@ cd DataPipeline
 pip install -r requirements.txt
 python build_hernani_data.py                       # descarga b5m + MDT de geoEuskadi (o IGN)
 python build_hernani_data.py --dtm mi_mdt_1m.tif   # MDT LiDAR 1 m de geoEuskadi descargado a mano
-python build_hernani_data.py --bounds 580450 4785950 590150 4793100   # rectángulo W S E N (es el valor por defecto)
+python build_hernani_data.py --bounds 580450 4779806 590150 4793100   # rectángulo W S E N (es el valor por defecto)
 python build_hernani_data.py --cell 1.5            # heightmap más fino (más memoria y más MB)
 python build_hernani_data.py --center 583200 4791100 --size 3000      # área antigua de 3 × 3 km
 python build_hernani_data.py --no-motorways        # sin A-15 / AP-1 / AP-8
@@ -499,7 +544,7 @@ python osm_traffic.py --refresh                    # solo vuelve a descargar y a
 python build_cars.py                               # vuelve a generar los coches (sólo necesita numpy)
 python preview_cars.py furgoneta,suv vista.png     # dibuja los coches en una imagen (necesita pillow)
 python preview_map.py                              # vuelve a dibujar Docs/mapa_circuitos.png
-python build_ortho.py                              # ortofoto b5m 2025 a 0,5 m/px (70 imágenes, ~55 MB; sólo necesita pillow)
+python build_ortho.py                              # ortofoto b5m 2025 a 0,5 m/px (130 imágenes, ~100 MB; necesita pillow y numpy)
 python build_ortho.py --layer orto2024 --res 1.0   # otro año u otra resolución
 ```
 También desde Unity: **Hernani Racing → 4. Regenerar datos geográficos (Python)**.
@@ -526,7 +571,7 @@ Assets/HernaniRacing/
     WorldBuilder.cs         Terreno, asfalto pegado al terreno, aceras, puentes, túneles, edificios, río
     GroundSurface.cs        Suelo con colores u ortofoto (carga progresiva, tecla O)
     Speedometer.cs          Velocímetro de aguja con lectura digital
-    TreeRenderer.cs         Árboles con GPU instancing por bloques
+    TreeRenderer.cs         Árboles: una malla por bloque de 320 m (detalle cerca, simplificados lejos)
     RoadGraph.cs            Grafo viario: cruces, Dijkstra, búsquedas espaciales
     Circuit.cs              Circuito de 2–64 cruces (de A a B o cerrado): muestreo, trazada, perfil de velocidad, seguimiento
     CircuitSelector.cs      Pantallas de mapa: circuito y carrera / salida del paseo libre (IMGUI)
@@ -558,8 +603,9 @@ Assets/HernaniRacing/
     HernaniRacingMenu.cs    Menú «Hernani Racing» (escena, shaders, ajustes del build web, datos)
     HernaniOrthoImporter.cs Importación de la ortofoto (crunch, mipmaps, sin repetición)
 DataPipeline/
-  build_hernani_data.py     Descarga y procesamiento de b5m, geoEuskadi e IGN (al final llama a osm_traffic)
-  build_ortho.py            Descarga la ortofoto de b5m (WMS) en teselas de 1 km
+  build_hernani_data.py     Descarga y procesamiento de b5m, geoEuskadi, IGN e IDENA (al final llama a osm_traffic)
+  navarra.py                La parte de Navarra (Arano, Goizueta) con datos de IDENA: calles, edificios, regatas y topónimos
+  build_ortho.py            Descarga la ortofoto de b5m (WMS) en teselas de 1 km (lo de Navarra, con la ortofoto de IDENA)
   osm_traffic.py            Sentidos, carriles, rotondas, semáforos, STOP/ceda y pasos de cebra desde OpenStreetMap
   cargen.py                 Generador de geometría de coches (carrocerías por secciones, lunas, ruedas, faros...)
   build_cars.py             Definición de cada coche (formas, detalles y física) y exportación a JSON
@@ -760,6 +806,11 @@ ls -d /opt/hernani-server /etc/hernani-server /var/lib/hernani-server /srv/herna
   del Gobierno Vasco) también es de b5m, con licencia **CC BY 4.0**.
 * **geoEuskadi** – © Gobierno Vasco / Eusko Jaurlaritza, <https://www.geo.euskadi.eus>. Datos abiertos, licencia **CC BY 4.0**.
 * **MDT05** – © Instituto Geográfico Nacional (CNIG / IDEE), licencia **CC BY 4.0** (scne.es).
+* **SITNA / IDENA** – *Fuente de los datos: SITNA – Gobierno de Navarra*, <https://idena.navarra.es>, licencia **CC BY 4.0**.
+  Para la parte de Navarra del mapa: red viaria, edificios, alturas catastrales, hidrografía, toponimia y la **ortofoto 2025**
+  (capa `ortofoto_5000_2025`), que rellena lo que la ortofoto de b5m no cubre (teselas `orto_9_0`, `orto_9_1` y `orto_9_2`).
+* **PNOA** (ortofoto de máxima actualidad, WMS `pnoa-ma`) – © Instituto Geográfico Nacional, licencia **CC BY 4.0**. Sólo se usa si
+  la ortofoto de Navarra no respondiera al regenerar las fotos con `build_ortho.py`.
 * **OpenStreetMap** – © OpenStreetMap contributors, licencia **ODbL 1.0** (<https://www.openstreetmap.org/copyright>).
   Se usa para los sentidos de circulación, carriles, rotondas, semáforos, señales STOP / ceda y pasos de cebra.
   Los datos derivados (`roads.json`) quedan bajo ODbL.
@@ -792,5 +843,5 @@ git push -u origin main
 (Antes crea el repositorio vacío en https://github.com/new, sin README ni .gitignore.)
 
 Unity regenera solo `Library/`, `Temp/`, `Logs/` y `UserSettings/`; no se suben.
-El fichero más grande (`heightmap.bytes`, 15 MB) está muy por debajo del límite de GitHub (100 MB): no hace falta Git LFS.
-Datos y ortofoto: © b5m Gipuzkoa, © IGN (MDT05), © OpenStreetMap contributors (ODbL); aforos de tráfico © Diputación Foral de Gipuzkoa / Open Data Euskadi; coches propios (CC0); red LiteNetLib (MIT).
+El fichero más grande (`heightmap.bytes`, 25 MB) está muy por debajo del límite de GitHub (100 MB): no hace falta Git LFS.
+Datos y ortofoto: © b5m Gipuzkoa, © IGN (MDT05), SITNA – Gobierno de Navarra (CC BY 4.0), © OpenStreetMap contributors (ODbL); aforos de tráfico © Diputación Foral de Gipuzkoa / Open Data Euskadi; coches propios (CC0); red LiteNetLib (MIT).

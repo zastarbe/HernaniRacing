@@ -7,7 +7,7 @@ namespace HernaniRacing.EditorTools
     /// Ajustes de importación de la ortofoto (Resources/HernaniOrtho/orto_X_Z.jpg, 2048 x 2048 px = 1 km):
     /// compresión «crunch» (ocupa poco en el build y en la descarga web, y se descomprime muy rápido al cargar),
     /// mipmaps, bordes sin repetir (Clamp) y sin copia legible en memoria.
-    /// La primera importación de las 70 imágenes tarda unos minutos (y otra vez al cambiar a la plataforma Web).
+    /// La primera importación de las 130 imágenes tarda unos minutos (y otra vez al cambiar a la plataforma Web).
     /// </summary>
     public class HernaniOrthoImporter : AssetPostprocessor
     {

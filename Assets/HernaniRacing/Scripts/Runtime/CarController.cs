@@ -131,6 +131,39 @@ namespace HernaniRacing
         }
         public Vector3[] wheelAnchors = new Vector3[4];
 
+        /// <summary>Modelo cuyas prestaciones lleva el coche (online: el del líder). null = las del propio modelo.</summary>
+        public CarModelData perfModel;
+
+        /// <summary>
+        /// Online: potencia, velocidad punta, frenos, agarre, peso, aerodinámica y dirección de otro modelo (el del líder),
+        /// conservando el aspecto, las ruedas y la altura de la suspensión del modelo elegido. Se llama después de colocar
+        /// las ruedas: los muelles se escalan con el peso para que el coche no se hunda ni se levante.
+        /// </summary>
+        public void ApplyPerformance(CarModelData p)
+        {
+            if (p == null) return;
+            if (Body == null) Body = GetComponent<Rigidbody>();
+            perfModel = p;
+            float m = p.mass > 0 ? p.mass : 1150f;
+            float r = m / Mathf.Max(1f, Body.mass);
+            Body.mass = m;
+            spring *= r; damper *= r; antiRoll *= r;
+            if (p.maxSpeed > 0) maxSpeed = p.maxSpeed;
+            if (p.engine > 0) engineForce = p.engine;
+            if (p.brake > 0) brakeForce = p.brake;
+            if (p.grip > 0) grip = p.grip;
+            if (p.downforce > 0) downforce = p.downforce;
+            float h = p.boundsMax != null ? p.boundsMax[1] : 1.4f;
+            maxSteerLow = 34f; maxSteerHigh = 9f;
+            if (p.IsF1) { maxSteerLow = 30f; maxSteerHigh = 6f; drag = 0.55f; }
+            else
+            {
+                drag = 0.42f * Mathf.Lerp(1f, 1.5f, Mathf.Clamp01((h - 1.4f) / 0.8f));
+                if (h > 1.8f) { maxSteerLow = 32f; maxSteerHigh = 8f; }
+                if (p.category == "Superdeportivo") drag = 0.36f;
+            }
+        }
+
         public Rigidbody Body { get; private set; }
         public float ForwardSpeed { get; private set; }
         public float Speed { get { return Body != null ? Body.Vel().magnitude : 0f; } }

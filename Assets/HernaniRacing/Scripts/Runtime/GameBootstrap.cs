@@ -86,7 +86,7 @@ namespace HernaniRacing
             }
             if (MainCamera.GetComponent<AudioListener>() == null) MainCamera.gameObject.AddComponent<AudioListener>();
             MainCamera.farClipPlane = 4000f;
-            MainCamera.transform.position = new Vector3(2600, 1500, 4800);
+            MainCamera.transform.position = new Vector3(2600, 1500, 10944);   // sobre Hernani (desde la v15 el origen está 6144 m más al sur)
             MainCamera.transform.rotation = Quaternion.Euler(90, 0, 0);
             if (RenderSettings.skybox == null)
             {

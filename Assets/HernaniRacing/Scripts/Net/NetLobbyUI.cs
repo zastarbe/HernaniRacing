@@ -291,6 +291,8 @@ namespace HernaniRacing
             }
             GUILayout.EndScrollView();
             if (room.settings.opponents > 0) GUILayout.Label("+ " + room.settings.opponents + " coche(s) de la IA en la carrera", small);
+            var perf = CarModels.Get(room.settings.aiCar);
+            if (perf != null) GUILayout.Label("Prestaciones para todos: las del coche del líder (" + perf.name + ", " + (perf.maxSpeed * 3.6f).ToString("F0") + " km/h)", small);
             GUILayout.Space(8);
             if (GUILayout.Button("RANKINGS Y CIRCUITOS", midBtn, GUILayout.Height(50))) m.Queue(OpenRankings);
             GUILayout.Space(4);
@@ -326,7 +328,7 @@ namespace HernaniRacing
                 else
                 {
                     GUILayout.Label("Esperando a que " + leaderNick + " empiece la partida...", new GUIStyle(txt) { fontSize = 24, fontStyle = FontStyle.Bold });
-                    GUILayout.Label("El líder elige el circuito, las vueltas, la IA y el tráfico. Tú eliges tu coche y tu color.", txt);
+                    GUILayout.Label("El líder elige el circuito, las vueltas, la IA y el tráfico. Tú eliges el aspecto de tu coche y el color; la potencia y las características son las del coche del líder.", txt);
                 }
             }
             else

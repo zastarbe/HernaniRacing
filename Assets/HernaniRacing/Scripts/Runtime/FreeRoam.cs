@@ -61,7 +61,7 @@ namespace HernaniRacing
         {
             world = w; settings = s;
             Active = true;
-            car = CarModels.Create(s.carId, "Coche jugador", s.paint, true);
+            car = CarModels.Create(s.carId, "Coche jugador", s.paint, true, online ? s.perfCarId : null);   // online: prestaciones del líder
             car.gameObject.AddComponent<PlayerDriver>().car = car;
             PlaceAtStart(startNode);
 

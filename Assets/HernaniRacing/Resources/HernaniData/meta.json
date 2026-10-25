@@ -1,23 +1,24 @@
 {
  "version": 1,
- "generated": "2026-10-22T09:58:55",
+ "generated": "2026-10-25T18:33:25",
  "crs": "EPSG:25830 (ETRS89 / UTM 30N)",
  "originE": 580450.0,
- "originN": 4785950.0,
+ "originN": 4779806.0,
  "sizeX": 10240.0,
- "sizeZ": 7168.0,
- "size": 10240.0,
+ "sizeZ": 13312.0,
+ "size": 13312.0,
  "gridX": 5121,
- "gridZ": 3585,
+ "gridZ": 6657,
  "cell": 2.0,
  "tileCells": 512,
  "heightmapRes": 0,
  "heightMin": 0.0,
- "heightRange": 610.0,
+ "heightRange": 910.0,
  "dtmSource": "IGN/IDEE MDT05 (WCS Elevacion25830_5) - fallback",
  "attribution": [
   "Viales, edificios, toponimia e hidrografía: b5m - IDE de Gipuzkoa, Diputación Foral de Gipuzkoa (CC BY 4.0)",
   "Modelo digital del terreno: IGN/IDEE MDT05 (WCS Elevacion25830_5) - fallback",
+  "Navarra (Arano, Goizueta): viales, edificios, alturas, hidrografía y toponimia - Fuente de los datos: SITNA – Gobierno de Navarra (IDENA, CC BY 4.0)",
   "Sentidos de circulación, semáforos, señales y pasos de peatones: © colaboradores de OpenStreetMap (ODbL)"
  ],
  "presets": [
@@ -26,13 +27,13 @@
    "length": 3910.0,
    "points": [
     2616.5,
-    4847.5,
+    10991.5,
     3126.0,
-    4896.5,
+    11040.5,
     3198.0,
-    5533.5,
+    11677.5,
     2473.0,
-    5378.5
+    11522.5
    ]
   },
   {
@@ -40,13 +41,13 @@
    "length": 2761.0,
    "points": [
     2836.5,
-    4580.0,
+    10724.0,
     2388.0,
-    4399.5,
+    10543.5,
     2616.5,
-    4847.5,
+    10991.5,
     3109.5,
-    4909.0
+    11053.0
    ]
   },
   {
@@ -54,13 +55,13 @@
    "length": 4537.0,
    "points": [
     2500.0,
-    6104.0,
+    12248.0,
     3241.0,
-    5620.5,
+    11764.5,
     2446.5,
-    5365.0,
+    11509.0,
     1774.0,
-    6115.0
+    12259.0
    ]
   },
   {
@@ -68,13 +69,13 @@
    "length": 2863.0,
    "points": [
     2616.5,
-    4847.5,
+    10991.5,
     2836.5,
-    4580.0,
+    10724.0,
     3126.0,
-    4896.5,
+    11040.5,
     3013.0,
-    5393.0
+    11537.0
    ]
   },
   {
@@ -82,13 +83,13 @@
    "length": 18946.0,
    "points": [
     2836.5,
-    4580.0,
+    10724.0,
     4645.5,
-    2979.0,
+    9123.0,
     5590.0,
-    2299.5,
+    8443.5,
     6814.5,
-    317.5
+    6461.5
    ]
   },
   {
@@ -96,13 +97,13 @@
    "length": 10398.0,
    "points": [
     2616.5,
-    4847.5,
+    10991.5,
     3264.5,
-    4531.5,
+    10675.5,
     1455.5,
-    2789.0,
+    8933.0,
     3251.5,
-    2991.5
+    9135.5
    ]
   },
   {
@@ -110,13 +111,13 @@
    "length": 7397.0,
    "points": [
     2678.0,
-    4946.0,
+    11090.0,
     3618.5,
-    4967.5,
+    11111.5,
     4933.0,
-    6644.0,
+    12788.0,
     3234.5,
-    5545.5
+    11689.5
    ]
   }
  ]

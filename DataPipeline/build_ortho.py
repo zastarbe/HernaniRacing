@@ -15,7 +15,11 @@ Uso:
     python build_ortho.py --force         # vuelve a descargar aunque ya existan
 
 Licencia de la ortofoto: CC BY 4.0, © Diputación Foral de Gipuzkoa (b5m) / Gobierno Vasco.
-Sólo necesita Python 3 y Pillow (pip install pillow).
+La ortofoto de b5m acaba poco después del límite de Gipuzkoa (sale en blanco). Lo que cae fuera (un trozo de
+Navarra, junto a Goizueta) se rellena con la ortofoto 2025 de Navarra (SITNA/IDENA, WMS capa ortofoto_5000_2025,
+25 cm, CC BY 4.0, "Fuente de los datos: SITNA – Gobierno de Navarra"); si no respondiera, con la PNOA de máxima
+actualidad del IGN (WMS pnoa-ma, CC BY 4.0). En ambos casos con el tono igualado al de b5m.
+Necesita Python 3, Pillow y numpy (pip install pillow numpy).
 """
 import argparse
 import io
@@ -36,6 +40,8 @@ ROOT = os.path.dirname(HERE)
 DATA = os.path.join(ROOT, "Assets", "HernaniRacing", "Resources", "HernaniData")
 OUT = os.path.join(ROOT, "Assets", "HernaniRacing", "Resources", "HernaniOrtho")
 WMS = "https://b5m.gipuzkoa.eus/ogc/wms/gipuzkoa_ort_wms"
+PNOA = "https://www.ign.es/wms-inspire/pnoa-ma"
+SITNA = "https://idena.navarra.es/ogc/wms"
 UA = "HernaniRacing/1.0 (data pipeline)"
 
 
@@ -56,6 +62,39 @@ def fetch(url, tries=6):
     raise RuntimeError(str(last))
 
 
+def fill_outside(img, minx, miny, tile, px):
+    """Rellena con PNOA (IGN) lo que b5m deja en blanco (fuera de Gipuzkoa), igualando el tono."""
+    import numpy as np
+    from PIL import ImageFilter
+    a = np.asarray(img).astype(np.float32)
+    white = a.min(axis=2) > 245
+    if white.mean() < 0.002:
+        return img
+    q = ("&STYLES=&CRS=EPSG:25830&BBOX=%.1f,%.1f,%.1f,%.1f&WIDTH=%d&HEIGHT=%d&FORMAT=image/jpeg"
+         % (minx, miny, minx + tile, miny + tile, px, px))
+    p = None
+    for url in (SITNA + "?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=ortofoto_5000_2025" + q,
+                PNOA + "?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=OI.OrthoimageCoverage" + q):
+        try:
+            cand = np.asarray(Image.open(io.BytesIO(fetch(url))).convert("RGB")).astype(np.float32)
+        except Exception as ex:  # noqa: BLE001
+            print("  aviso: relleno no disponible (%s): %s" % (url.split("?")[0], ex))
+            continue
+        # vale si cubre casi todo lo que b5m deja en blanco
+        if ((cand.min(axis=2) > 245) | (cand.max(axis=2) < 3))[white].mean() < 0.02:
+            p = cand
+            break
+    if p is None:
+        return img
+    m = Image.fromarray((white * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(31)).filter(ImageFilter.GaussianBlur(4))
+    m = np.asarray(m).astype(np.float32)[..., None] / 255.0
+    common = (m[..., 0] < 0.01) & (p.min(axis=2) < 245)
+    if common.sum() > 1000:
+        for c in range(3):
+            p[..., c] = (p[..., c] - p[common][:, c].mean()) / max(p[common][:, c].std(), 1.0) * a[common][:, c].std() + a[common][:, c].mean()
+    return Image.fromarray(np.clip(a * (1 - m) + p * m, 0, 255).astype(np.uint8))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--layer", default="orto2025")
@@ -63,7 +102,11 @@ def main():
     ap.add_argument("--quality", type=int, default=85)
     ap.add_argument("--workers", type=int, default=5)
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--out", default=None, help="carpeta de salida (por defecto Resources/HernaniOrtho)")
     a = ap.parse_args()
+    global OUT
+    if a.out:
+        OUT = a.out
 
     meta = json.load(open(os.path.join(DATA, "meta.json"), encoding="utf-8"))
     e0, n0 = meta["originE"], meta["originN"]
@@ -95,6 +138,8 @@ def main():
         img = Image.open(io.BytesIO(raw)).convert("RGB")
         if img.size != (px, px):
             img = img.resize((px, px), Image.LANCZOS)
+        minx, miny = e0 + tx * tile, n0 + tz * tile
+        img = fill_outside(img, minx, miny, tile, px)
         tmp = path + ".tmp"
         img.save(tmp, "JPEG", quality=a.quality, optimize=True, progressive=False)
         os.replace(tmp, path)
@@ -116,7 +161,7 @@ def main():
         "tileMeters": tile,
         "tilesX": tx_n,
         "tilesZ": tz_n,
-        "license": "CC BY 4.0 © Diputación Foral de Gipuzkoa (b5m) / Gobierno Vasco",
+        "license": "CC BY 4.0 © Diputación Foral de Gipuzkoa (b5m) / Gobierno Vasco; fuera de Gipuzkoa: Fuente de los datos: SITNA – Gobierno de Navarra (CC BY 4.0)",
         "generated": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
     with open(os.path.join(OUT, "ortho.json"), "w", encoding="utf-8") as f:
