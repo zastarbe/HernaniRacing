@@ -57,8 +57,7 @@ namespace HernaniRacing
             float lat = circuit.Lateral(q, j);
             float hwRoad = circuit.width[j] * 0.5f;
             if (Mathf.Abs(lat) > hwRoad + (pedestrian ? 0.2f : 1.5f) + hw) return;   // fuera de mi calzada
-            float L = circuit.length;
-            float gap = Mathf.Repeat(circuit.ProjectS(q, j) - sMe + L * 0.5f, L) - L * 0.5f;
+            float gap = circuit.Delta(circuit.ProjectS(q, j), sMe);
             if (gap < -15f || gap > 75f) return;
             Vector3 dj = circuit.dir[j]; dj.y = 0; dj.Normalize();
             obs.Add(new Obs { gap = gap, lat = lat, v = Vector3.Dot(vq, dj), hw = hw, hl = hl });

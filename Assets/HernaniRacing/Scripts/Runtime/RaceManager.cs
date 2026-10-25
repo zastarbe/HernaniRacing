@@ -77,6 +77,10 @@ namespace HernaniRacing
         System.Action pending;
 
         MapView map;
+        /// <summary>Vueltas de la carrera: un recorrido abierto (de A a B) se corre una sola vez.</summary>
+        int Laps { get { return circuit != null && !circuit.closed ? 1 : settings.laps; } }
+        /// <summary>Metros de cada vuelta (abierto: de la salida a la meta).</summary>
+        float LapLen { get { return circuit.LapLength; } }
         Vector2 mapCenter; float mapSpan;
         int mapZoom;          // 0 = circuito entero; 1.. = MapView.Zooms[mapZoom - 1] alrededor del coche
         TrafficSystem traffic;
@@ -279,7 +283,8 @@ namespace HernaniRacing
                 int row = k / 2;
                 int side = k % 2 == 0 ? -1 : 1;
                 float s = -(7f + row * 9f);
-                float sw = Mathf.Repeat(s, circuit.length);
+                // cerrado: detrás de la línea dando la vuelta; abierto: en la calle de antes de la salida
+                float sw = circuit.ClampS(circuit.startS + s);
                 int idx = circuit.IndexAt(sw);
                 float hw = circuit.width[idx] * 0.5f;
                 Vector3 p = circuit.PosAt(sw, true);
@@ -460,7 +465,7 @@ namespace HernaniRacing
         /// <summary>Metros que le faltan a un coche para la meta.</summary>
         float Remaining(Racer r)
         {
-            return Mathf.Max(0f, settings.laps * circuit.length - r.progress);
+            return Mathf.Max(0f, Laps * LapLen - r.progress);
         }
 
         void Retire(Racer r)
@@ -495,7 +500,7 @@ namespace HernaniRacing
             var car = r.car;
             Vector3 p = car.transform.position;
             float d;
-            float L = circuit.length;
+            float L = LapLen;
             // Fuera del circuito (sólo jugador): el progreso se congela en el punto por donde salió.
             // Al volver a la pista se acepta si vuelve cerca; si ha atajado, vuelve a donde salió.
             bool lockedOff = r.isPlayer && r.offTrack && state == State.Racing && !r.finished && r.idx >= 0;
@@ -510,8 +515,8 @@ namespace HernaniRacing
                     int gi = circuit.Closest(p, -1, 0, out gd);
                     if (gd < circuit.width[gi] * 0.5f + 3f && Mathf.Abs(circuit.pos[gi].y - p.y) < 3f)
                     {
-                        float ahead = Mathf.Repeat((gi - r.idx) * circuit.SampleSpacing, L);
-                        if (ahead > L * 0.5f) ahead -= L;          // negativo = ha vuelto por detrás
+                        // negativo = ha vuelto por detrás
+                        float ahead = circuit.Delta(gi * circuit.SampleSpacing, r.idx * circuit.SampleSpacing);
                         if (ahead <= 100f && ahead >= -400f) { r.idx = gi; d = gd; lockedOff = false; r.offTrack = false; }
                         else { r.offTrack = false; ResetRacer(r, "Atajo: vuelves al punto donde saliste del circuito"); return; }
                     }
@@ -528,9 +533,7 @@ namespace HernaniRacing
                 return;
             }
             float s = circuit.ProjectS(p, r.idx);
-            float ds = s - r.lastS;
-            if (ds > L * 0.5f) ds -= L;
-            if (ds < -L * 0.5f) ds += L;
+            float ds = circuit.Delta(s, r.lastS);
             r.lastS = s;
             if (state == State.Countdown) return;
             if (!r.finished && !r.retired) r.progress += ds;
@@ -543,12 +546,12 @@ namespace HernaniRacing
                 if (r.bestLap < 0 || lt < r.bestLap) r.bestLap = lt;
                 r.lapStart = Clock;
                 r.lapsDone = laps;
-                if (r.isPlayer && laps < settings.laps)
-                    Flash(laps == settings.laps - 1 ? "¡ÚLTIMA VUELTA!  " + FormatTime(lt) : "Vuelta " + laps + "  " + FormatTime(lt), 2.5f);
-                if (r.lapsDone >= settings.laps)
+                if (r.isPlayer && laps < Laps)
+                    Flash(laps == Laps - 1 ? "¡ÚLTIMA VUELTA!  " + FormatTime(lt) : "Vuelta " + laps + "  " + FormatTime(lt), 2.5f);
+                if (r.lapsDone >= Laps)
                 {
                     // tiempo exacto del cruce de la línea (interpolado dentro del fotograma)
-                    float over = r.progress - settings.laps * L;
+                    float over = r.progress - Laps * L;
                     float back = ds > 0.01f ? Time.deltaTime * Mathf.Clamp01(over / ds) : 0f;
                     r.finished = true;
                     r.finishTime = Clock - raceStart - back;
@@ -562,6 +565,8 @@ namespace HernaniRacing
                         state = State.Finished;
                         finishedAt = Clock;
                         Flash("¡META!", 3f);
+                        // online: mi mejor vuelta va al ranking del circuito en el servidor (sólo jugadores, no la IA)
+                        if (online && net != null) net.Core.SendRaceResult(r.bestLap, r.finishTime, settings.carId, (byte)Laps);
                     }
                 }
             }
@@ -598,16 +603,14 @@ namespace HernaniRacing
 
         void ResetRacer(Racer r, string why)
         {
-            float s = Mathf.Repeat(r.idx * circuit.SampleSpacing - 4f, circuit.length);
+            float s = circuit.ClampS(r.idx * circuit.SampleSpacing - 4f);
             Vector3 p = Ground(circuit.PosAt(s, true)) + Vector3.up * 0.4f;
             r.car.Teleport(p, Quaternion.LookRotation(circuit.DirAt(s), Vector3.up));
             r.offTimer = r.stuckTimer = r.flipTimer = r.wrongTimer = 0f;
             float d;
             r.idx = circuit.Closest(p, r.idx, 25, out d);
             float ns = circuit.ProjectS(p, r.idx);
-            float delta = ns - r.lastS;
-            if (delta > circuit.length * 0.5f) delta -= circuit.length;
-            if (delta < -circuit.length * 0.5f) delta += circuit.length;
+            float delta = circuit.Delta(ns, r.lastS);
             if (!r.finished) r.progress += delta;
             r.lastS = ns;
             if (r.ai != null) r.ai.ResetTracking();
@@ -675,15 +678,31 @@ namespace HernaniRacing
 
             // ---- arriba izquierda: vuelta, posición y tiempos
             GUI.Box(new Rect(20, 20, 330, 200), GUIContent.none, box);
-            int lapShow = Mathf.Clamp(player.lapsDone + 1, 1, settings.laps);
-            GUI.Label(new Rect(36, 28, 300, 34), "VUELTA  " + lapShow + " / " + settings.laps, mid);
-            GUI.Label(new Rect(36, 62, 300, 34), "POSICIÓN  " + player.position + " / " + racers.Count, mid);
             float cur = state == State.Countdown ? 0 : (player.finished ? player.finishTime : raceTime);
-            GUI.Label(new Rect(36, 100, 300, 26), "Tiempo      " + FormatTime(cur), label);
-            float lapNow = state == State.Racing && !player.finished ? Clock - player.lapStart : 0;
-            GUI.Label(new Rect(36, 126, 300, 26), "Vuelta       " + FormatTime(lapNow), label);
-            GUI.Label(new Rect(36, 152, 300, 26), "Última       " + FormatTime(player.lapTimes.Count > 0 ? player.lapTimes[player.lapTimes.Count - 1] : -1), label);
-            GUI.Label(new Rect(36, 178, 300, 26), "Mejor        " + FormatTime(player.bestLap), label);
+            if (circuit.closed)
+            {
+                int lapShow = Mathf.Clamp(player.lapsDone + 1, 1, Laps);
+                GUI.Label(new Rect(36, 28, 300, 34), "VUELTA  " + lapShow + " / " + Laps, mid);
+                GUI.Label(new Rect(36, 62, 300, 34), "POSICIÓN  " + player.position + " / " + racers.Count, mid);
+                GUI.Label(new Rect(36, 100, 300, 26), "Tiempo      " + FormatTime(cur), label);
+                float lapNow = state == State.Racing && !player.finished ? Clock - player.lapStart : 0;
+                GUI.Label(new Rect(36, 126, 300, 26), "Vuelta       " + FormatTime(lapNow), label);
+                GUI.Label(new Rect(36, 152, 300, 26), "Última       " + FormatTime(player.lapTimes.Count > 0 ? player.lapTimes[player.lapTimes.Count - 1] : -1), label);
+                GUI.Label(new Rect(36, 178, 300, 26), "Mejor        " + FormatTime(player.bestLap), label);
+            }
+            else
+            {
+                // recorrido de A a B: sin vueltas, lo que se lleva y lo que falta hasta la meta
+                float done = Mathf.Clamp(player.progress, 0f, LapLen);
+                GUI.Label(new Rect(36, 28, 300, 34), "DE LA SALIDA A LA META", new GUIStyle(mid) { fontSize = 20 });
+                GUI.Label(new Rect(36, 62, 300, 34), "POSICIÓN  " + player.position + " / " + racers.Count, mid);
+                GUI.Label(new Rect(36, 100, 300, 26), "Tiempo      " + FormatTime(cur), label);
+                GUI.Label(new Rect(36, 126, 300, 26), "Recorrido  " + FormatDist(done) + " de " + FormatDist(LapLen), label);
+                GUI.Label(new Rect(36, 152, 300, 26), "Faltan       " + (player.finished ? "en meta" : FormatDist(Remaining(player))), label);
+                Rect bar = new Rect(36, 186, 296, 14);
+                GUI.DrawTexture(bar, Tex.Solid(new Color(1, 1, 1, 0.15f)));
+                GUI.DrawTexture(new Rect(bar.x, bar.y, bar.width * Mathf.Clamp01(done / Mathf.Max(1f, LapLen)), bar.height), Tex.Solid(new Color(1f, 0.85f, 0.25f)));
+            }
 
             // ---- arriba centro: información geográfica real
             Vector3 pp = player.car.transform.position;
@@ -752,7 +771,7 @@ namespace HernaniRacing
                 foreach (var r in racers)
                     if (!r.isPlayer && !r.gone) map.Marker(r.car.transform.position, r.car.transform.forward, r.color, false, MapView.MarkerSize(span, 14, 9));
                 map.Marker(pp2, player.car.transform.forward, player.color, true, MapView.MarkerSize(span, 26, 18));
-                GUI.Label(new Rect(mr.x, mr.yMax + 4, ms, 22), (mapZoom > 0 ? "Zoom " + MapView.ZoomLabel(span) : "Circuito: " + circuit.length.ToString("F0") + " m · desnivel +" + circuit.elevationGain.ToString("F0") + " m") + "  ·  N zoom · M ocultar", small);
+                GUI.Label(new Rect(mr.x, mr.yMax + 4, ms, 22), (mapZoom > 0 ? "Zoom " + MapView.ZoomLabel(span) : (circuit.closed ? "Circuito: " : "Recorrido: ") + LapLen.ToString("F0") + " m · desnivel +" + circuit.elevationGain.ToString("F0") + " m") + "  ·  N zoom · M ocultar", small);
             }
             if (chase != null && chase.RearView)
             {
@@ -787,7 +806,7 @@ namespace HernaniRacing
                 }
             }
             PenaltyHud.Draw(W, H, player.car);
-            GUI.Label(new Rect(20, H - 34, 1500, 26), "W/S acelerar/frenar · A/D girar · Espacio freno de mano · R recolocar · C cámara · B mirar atrás · N zoom mapa · F flechas · Esc pausa", small);
+            GUI.Label(new Rect(20, H - 34, 1500, 26), "W/S acelerar/frenar · A/D girar · Espacio freno de mano · R recolocar · C cámara · B mirar atrás · M mapa · N zoom mapa · F flechas · O suelo · Esc pausa", small);
 
             if (paused) PauseMenu(W, H);
             else if (state == State.Finished) Results(W, H);
@@ -823,7 +842,7 @@ namespace HernaniRacing
             // cabecera de columnas
             GUI.Label(new Rect(r.x + 300, r.y + 70, 140, 26), "tiempo", small);
             GUI.Label(new Rect(r.x + 445, r.y + 70, 215, 26), "hasta la meta", small);
-            GUI.Label(new Rect(r.x + 665, r.y + 70, 145, 26), "mejor vuelta", small);
+            if (circuit.closed) GUI.Label(new Rect(r.x + 665, r.y + 70, 145, 26), "mejor vuelta", small);
             for (int i = 0; i < order.Count; i++)
             {
                 var x = order[i];
@@ -838,7 +857,7 @@ namespace HernaniRacing
                 else { t = FormatTime(raceTime); left = "faltan " + FormatDist(Remaining(x)); }
                 GUI.Label(new Rect(r.x + 300, y, 140, 30), t, label);
                 GUI.Label(new Rect(r.x + 445, y, 215, 30), left, x.finished ? small : label);
-                GUI.Label(new Rect(r.x + 665, y, 145, 30), FormatTime(x.bestLap), small);
+                if (circuit.closed) GUI.Label(new Rect(r.x + 665, y, 145, 30), FormatTime(x.bestLap), small);
             }
             if (online)
             {

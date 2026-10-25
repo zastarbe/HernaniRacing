@@ -161,7 +161,7 @@ namespace HernaniRacing
             var s = net.SettingsForMe(room.settings);
             if (room.phase == RoomPhase.Race)
             {
-                var c = Circuit.Build(world.graph, room.settings.nodes);
+                var c = Circuit.Build(world.graph, room.settings.nodes, room.settings.closed);
                 if (c == null || c.error != null)
                 {
                     net.ShowToast("No se puede montar el circuito de la sala" + (c != null ? ": " + c.error : ""), 5f);

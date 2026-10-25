@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading;
 using HernaniRacing.Net;
@@ -8,6 +9,8 @@ namespace HernaniRacing.Server
 {
     public static class Program
     {
+        static volatile bool running = true;
+
         public static int Main(string[] args)
         {
             string cfgPath = "server.json";
@@ -23,13 +26,23 @@ namespace HernaniRacing.Server
                 }
             }
             var cfg = LoadConfig(cfgPath);
+            if (string.IsNullOrEmpty(cfg.dataFile))
+            {
+                // con el servicio de systemd (StateDirectory=hernani-server) va a /var/lib/hernani-server;
+                // si no, junto al server.json
+                string state = Environment.GetEnvironmentVariable("STATE_DIRECTORY");
+                if (!string.IsNullOrEmpty(state)) cfg.dataFile = Path.Combine(state.Split(':')[0], "circuits.json");
+                else cfg.dataFile = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(cfgPath)) ?? ".", "circuits.json");
+            }
             var core = new ServerCore(cfg);
             Console.WriteLine("Hernani Racing - servidor multijugador (protocolo v" + NetProto.Version + ")");
             if (!core.Start()) return 1;
 
-            bool running = true;
+            running = true;
             Console.CancelKeyPress += (s, e) => { e.Cancel = true; running = false; };
-            AppDomain.CurrentDomain.ProcessExit += (s, e) => { running = false; };
+            // systemctl stop / kill: SIGTERM → salir del bucle y cerrar ordenadamente
+            using var sigTerm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, ctx => { ctx.Cancel = true; running = false; });
+            using var sigHup = PosixSignalRegistration.Create(PosixSignal.SIGHUP, ctx => { ctx.Cancel = true; running = false; });
             DateTime nextStatus = DateTime.Now.AddMinutes(10);
             while (running)
             {

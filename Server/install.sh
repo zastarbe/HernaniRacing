@@ -89,6 +89,7 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=$CFG_DIR
+StateDirectory=hernani-server
 PrivateTmp=true
 
 [Install]
@@ -132,6 +133,7 @@ echo " IMPORTANTE: si tu proveedor (OVH, Hetzner, AWS, Oracle...) tiene un"
 echo " cortafuegos en su panel web, abre allí también el puerto $PORT UDP"
 echo " y, para la versión web, el puerto $WEBPORT TCP."
 echo
+echo " Circuitos online:  /var/lib/hernani-server/circuits.json (creadores y rankings)"
 echo " Ver el registro:   sudo journalctl -u $SVC -f"
 echo " Cambiar opciones:  sudo nano $CFG  y luego  sudo systemctl restart $SVC"
 echo "================================================================"

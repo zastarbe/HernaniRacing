@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using HernaniRacing.Net;
 using UnityEngine;
 
 namespace HernaniRacing
@@ -12,10 +13,13 @@ namespace HernaniRacing
     {
         public const int MaxOpponents = 8;
         public readonly RaceSettings settings = new RaceSettings();
-        public readonly List<int> sel = new List<int>();   // cruces del circuito (1..4)
+        public readonly List<int> sel = new List<int>();   // cruces del circuito en orden (1 = salida)
+        public bool closed = true;                         // se vuelve al cruce 1 (a vueltas); si no, de A a B
         public Circuit circuit;
         public string info;                                // error del circuito, si lo hay
-        public string presetName = "";
+        public string presetName = "";                     // nombre (predefinido o guardado en el servidor)
+        public string creator = "";                        // quién lo hizo ("" = hecho ahora y sin guardar)
+        public bool isPreset;                              // uno de los circuitos predefinidos del juego
         public int freeStart = -1;                         // cruce de salida del paseo libre (-1 = centro de Hernani)
         public int version;                                // cambia cada vez que cambia el circuito
         World world;
@@ -40,22 +44,61 @@ namespace HernaniRacing
         {
             circuit = null;
             info = null;
-            if (sel.Count == 4)
+            if (sel.Count >= 2)
             {
-                circuit = Circuit.Build(world.graph, sel.ToArray());
+                circuit = Circuit.Build(world.graph, sel.ToArray(), closed);
                 if (circuit.error != null) info = circuit.error;
             }
             version++;
         }
 
-        public void SetNodes(IEnumerable<int> nodes, string name)
+        public void SetNodes(IEnumerable<int> nodes, string name) { SetNodes(nodes, true, name, "", false); }
+
+        public void SetNodes(IEnumerable<int> nodes, bool isClosed, string name, string by, bool preset)
         {
             sel.Clear();
             foreach (int n in nodes)
-                if (n >= 0 && n < world.graph.nodes.Length && !sel.Contains(n) && sel.Count < 4) sel.Add(n);
+                if (n >= 0 && n < world.graph.nodes.Length && !sel.Contains(n) && sel.Count < Circuit.MaxPoints) sel.Add(n);
+            closed = isClosed && sel.Count >= 2;
             presetName = name ?? "";
+            creator = by ?? "";
+            isPreset = preset;
             Rebuild();
         }
+
+        // ---- circuito hecho a mano: cualquier cambio lo convierte en uno nuevo (sin nombre ni creador)
+        void Edited() { presetName = ""; creator = ""; isPreset = false; }
+
+        /// <summary>Añade un cruce al final del recorrido.</summary>
+        public void AddPoint(int node)
+        {
+            if (sel.Contains(node) || sel.Count >= Circuit.MaxPoints) return;
+            if (sel.Count == 0) closed = false;
+            sel.Add(node);
+            Edited();
+            Rebuild();
+        }
+
+        public void RemovePoint(int i)
+        {
+            if (i < 0 || i >= sel.Count) return;
+            sel.RemoveAt(i);
+            if (sel.Count < 2) closed = false;
+            Edited();
+            Rebuild();
+        }
+
+        /// <summary>Cerrar (volver al cruce 1 y correr a vueltas) o abrir (de A a B).</summary>
+        public void SetClosed(bool c)
+        {
+            if (sel.Count < 2) c = false;
+            if (c == closed) return;
+            closed = c;
+            Edited();
+            Rebuild();
+        }
+
+        public void ClearPoints() { sel.Clear(); closed = false; Edited(); Rebuild(); }
 
         public void ApplyPreset(PresetData p)
         {
@@ -65,8 +108,20 @@ namespace HernaniRacing
                 int n = world.graph.NearestJunction(new Vector3(p.points[i], 0, p.points[i + 1]));
                 if (n >= 0 && !nodes.Contains(n)) nodes.Add(n);
             }
-            SetNodes(nodes, p.name);
+            SetNodes(nodes, true, p.name, NetProto.PresetCreator, true);
         }
+
+        /// <summary>Un circuito guardado en el servidor.</summary>
+        public void ApplyServer(CircuitEntry e)
+        {
+            SetNodes(e.nodes ?? new int[0], e.closed, e.name, e.creator, e.preset);
+        }
+
+        /// <summary>Identificador del circuito (el mismo que usa el servidor para los rankings).</summary>
+        public string Key { get { return NetProto.CircuitKey(sel, closed); } }
+
+        /// <summary>Hecho ahora, todavía sin nombre: se puede guardar en el servidor.</summary>
+        public bool IsCustom { get { return !isPreset && string.IsNullOrEmpty(creator); } }
 
         public PresetData[] Presets { get { return world.data.meta.presets ?? new PresetData[0]; } }
 
@@ -74,8 +129,9 @@ namespace HernaniRacing
         {
             get
             {
-                if (!CircuitOk) return sel.Count < 4 ? "Sin circuito" : "Circuito no válido";
-                return string.IsNullOrEmpty(presetName) ? "Circuito a tu medida" : presetName;
+                if (!CircuitOk) return sel.Count < 2 ? "Sin circuito" : "Circuito no válido";
+                if (!string.IsNullOrEmpty(presetName)) return presetName;
+                return closed ? "Circuito a tu medida" : "Recorrido a tu medida";
             }
         }
 
@@ -142,7 +198,11 @@ namespace HernaniRacing
                 int n;
                 if (int.TryParse(part, out n)) nodes.Add(n);
             }
-            SetNodes(nodes, PlayerPrefs.GetString("menu.preset", ""));
+            SetNodes(nodes, PlayerPrefs.GetInt("menu.closed", 1) == 1, PlayerPrefs.GetString("menu.preset", ""),
+                     PlayerPrefs.GetString("menu.creator", ""), PlayerPrefs.GetInt("menu.ispreset", 1) == 1 && PlayerPrefs.GetString("menu.preset", "") != "");
+            // los predefinidos se reconocen por el nombre (las versiones anteriores no guardaban el creador)
+            if (isPreset && !Presets.Any(pr => pr.name == presetName)) isPreset = false;
+            if (isPreset) creator = NetProto.PresetCreator;
             if (!CircuitOk && Presets.Length > 0) ApplyPreset(Presets[0]);
         }
 
@@ -166,6 +226,9 @@ namespace HernaniRacing
             PlayerPrefs.SetInt("menu.free", freeStart);
             PlayerPrefs.SetString("menu.sel", string.Join(",", sel.Select(n => n.ToString()).ToArray()));
             PlayerPrefs.SetString("menu.preset", presetName ?? "");
+            PlayerPrefs.SetInt("menu.closed", closed ? 1 : 0);
+            PlayerPrefs.SetString("menu.creator", creator ?? "");
+            PlayerPrefs.SetInt("menu.ispreset", isPreset ? 1 : 0);
             PlayerPrefs.Save();
         }
     }

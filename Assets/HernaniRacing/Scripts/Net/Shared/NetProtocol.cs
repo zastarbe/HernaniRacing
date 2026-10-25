@@ -9,7 +9,7 @@ namespace HernaniRacing.Net
     public static class NetProto
     {
         public const string Game = "HernaniRacing";
-        public const int Version = 1;               // súbelo si cambias el formato de los mensajes
+        public const int Version = 2;               // súbelo si cambias el formato de los mensajes (v2: circuitos y rankings)
         public const int DefaultPort = 7777;
         /// <summary>Puerto TCP de la versión web: página del juego (http) + WebSocket en /ws.</summary>
         public const int DefaultWebPort = 8080;
@@ -25,6 +25,44 @@ namespace HernaniRacing.Net
         // canales de LiteNetLib
         public const byte ChReliable = 0, ChCars = 1, ChTraffic = 2, ChPeds = 3;
         public const int Channels = 4;
+
+        // circuitos del servidor
+        public const int MaxCircuitNodes = 64;
+        public const int MaxCircuitName = 32;
+        public const int TopLaps = 10;               // vueltas rápidas que se guardan por circuito
+        /// <summary>"Creador" de los circuitos predefinidos del juego.</summary>
+        public const string PresetCreator = "Hernani Racing";
+
+        /// <summary>Identificador de un circuito: "c:" (cerrado, a vueltas) u "o:" (de A a B) + los cruces en orden.</summary>
+        public static string CircuitKey(IList<int> nodes, bool closed)
+        {
+            var sb = new System.Text.StringBuilder(closed ? "c:" : "o:");
+            if (nodes != null)
+                for (int i = 0; i < nodes.Count; i++) { if (i > 0) sb.Append(','); sb.Append(nodes[i]); }
+            return sb.ToString();
+        }
+
+        /// <summary>1:23.456</summary>
+        public static string FormatLap(float t)
+        {
+            if (t <= 0) return "--:--.---";
+            int m = (int)(t / 60f);
+            float sec = t - m * 60;
+            return m + ":" + sec.ToString("00.000", System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        public static string CleanName(string s, int max)
+        {
+            if (s == null) return "";
+            var sb = new System.Text.StringBuilder();
+            foreach (char ch in s)
+            {
+                if (char.IsControl(ch)) continue;
+                sb.Append(ch);
+                if (sb.Length >= max) break;
+            }
+            return sb.ToString().Trim();
+        }
     }
 
     public enum Msg : byte
@@ -32,8 +70,10 @@ namespace HernaniRacing.Net
         // cliente -> servidor
         TimeReq = 1, ListRooms = 2, CreateRoom = 3, JoinRoom = 4, LeaveRoom = 5, Profile = 6,
         Settings = 7, Start = 8, EnterGame = 9, LeaveGame = 10, EndGame = 11, Relay = 12,
+        ListCircuits = 13, SaveCircuit = 14, RaceResult = 15, DeleteCircuit = 16,
         // servidor -> cliente
-        Welcome = 101, TimeResp = 102, RoomList = 103, RoomState = 104, RelayFrom = 105, Error = 106, LeftRoom = 107
+        Welcome = 101, TimeResp = 102, RoomList = 103, RoomState = 104, RelayFrom = 105, Error = 106, LeftRoom = 107,
+        CircuitList = 108, Info = 109
     }
 
     /// <summary>Qué viaja dentro de un mensaje Relay (el servidor no lo interpreta, sólo lo reenvía).</summary>
@@ -99,7 +139,10 @@ namespace HernaniRacing.Net
     /// <summary>Lo que elige el líder de la sala: circuito, vueltas, IA, tráfico...</summary>
     public class RoomSettings
     {
-        public int[] nodes = new int[0];     // los 4 cruces del circuito (ids de nodo del grafo)
+        public int[] nodes = new int[0];     // los cruces del circuito en orden (ids de nodo del grafo)
+        public bool closed = true;           // vuelve al cruce 1 (a vueltas); si no, de A a B (una vez)
+        public bool preset;                  // es uno de los circuitos predefinidos del juego
+        public string circuitCreator = "";   // quién lo hizo ("" = sin guardar en el servidor)
         public byte laps = 3;
         public byte opponents = 0;           // coches de la IA
         public byte difficulty = 1;
@@ -115,23 +158,27 @@ namespace HernaniRacing.Net
             w.Put(laps); w.Put(opponents); w.Put(difficulty);
             byte f = 0;
             if (traffic) f |= 1; if (pedestrians) f |= 2; if (freeTraffic) f |= 4; if (freePedestrians) f |= 8;
+            if (closed) f |= 16; if (preset) f |= 32;
             w.Put(f);
-            w.Put(aiCar ?? "turismo"); w.Put(freeStartNode); w.Put(circuitName ?? "");
+            w.Put(aiCar ?? "turismo"); w.Put(freeStartNode); w.Put(circuitName ?? ""); w.Put(circuitCreator ?? "");
         }
 
         public static RoomSettings Read(NetDataReader r)
         {
             var s = new RoomSettings();
             s.nodes = r.GetIntArray();
-            if (s.nodes.Length > 8) Array.Resize(ref s.nodes, 8);
+            if (s.nodes.Length > NetProto.MaxCircuitNodes) Array.Resize(ref s.nodes, NetProto.MaxCircuitNodes);
             s.laps = (byte)Math.Max(1, Math.Min(20, (int)r.GetByte()));
             s.opponents = (byte)Math.Min(NetProto.MaxCarsPerRace - 1, (int)r.GetByte());
             s.difficulty = (byte)Math.Min(2, (int)r.GetByte());
             byte f = r.GetByte();
             s.traffic = (f & 1) != 0; s.pedestrians = (f & 2) != 0; s.freeTraffic = (f & 4) != 0; s.freePedestrians = (f & 8) != 0;
-            s.aiCar = r.GetString(32); s.freeStartNode = r.GetInt(); s.circuitName = r.GetString(64);
+            s.closed = (f & 16) != 0; s.preset = (f & 32) != 0;
+            s.aiCar = r.GetString(32); s.freeStartNode = r.GetInt(); s.circuitName = r.GetString(64); s.circuitCreator = r.GetString(32);
             return s;
         }
+
+        public string Key { get { return NetProto.CircuitKey(nodes, closed); } }
 
         public RoomSettings Clone()
         {
@@ -216,6 +263,64 @@ namespace HernaniRacing.Net
         public static RoomListEntry Read(NetDataReader r)
         {
             return new RoomListEntry { code = r.GetString(16), name = r.GetString(48), leaderNick = r.GetString(32), players = r.GetByte(), phase = (RoomPhase)r.GetByte() };
+        }
+    }
+
+    // ------------------------------------------------------------------ circuitos guardados en el servidor y rankings
+
+    /// <summary>Una vuelta rápida del ranking de un circuito.</summary>
+    public class LapRecord
+    {
+        public string nick = "";
+        public string carId = "";
+        public float time;           // segundos (abierto: de la salida a la meta)
+        public long when;            // fecha (segundos Unix, UTC)
+
+        public void Write(NetDataWriter w) { w.Put(nick ?? ""); w.Put(carId ?? ""); w.Put(time); w.Put(when); }
+        public static LapRecord Read(NetDataReader r)
+        {
+            return new LapRecord { nick = r.GetString(32), carId = r.GetString(32), time = r.GetFloat(), when = r.GetLong() };
+        }
+    }
+
+    /// <summary>Circuito guardado en el servidor: nombre, creador, cruces, carreras corridas y vueltas rápidas.</summary>
+    public class CircuitEntry
+    {
+        public string key = "";
+        public string name = "";
+        public string creator = "";
+        public int[] nodes = new int[0];
+        public bool closed = true;
+        public bool preset;
+        public float length;         // metros por vuelta (lo calcula el juego al guardarlo)
+        public int races;            // carreras online corridas en él
+        public long created;         // segundos Unix
+        public string dataSig = "";  // versión de los datos de Hernani (los ids de los cruces dependen de ella)
+        public List<LapRecord> laps = new List<LapRecord>();   // las mejores, de menor a mayor tiempo (una por piloto)
+
+        public LapRecord BestLap() { return laps != null && laps.Count > 0 ? laps[0] : null; }
+
+        public void Write(NetDataWriter w)
+        {
+            w.Put(key ?? ""); w.Put(name ?? ""); w.Put(creator ?? "");
+            w.PutArray(nodes ?? new int[0]);
+            w.Put(closed); w.Put(preset); w.Put(length); w.Put(races); w.Put(created);
+            int n = laps == null ? 0 : Math.Min(laps.Count, NetProto.TopLaps);
+            w.Put((byte)n);
+            for (int i = 0; i < n; i++) laps[i].Write(w);
+        }
+
+        public static CircuitEntry Read(NetDataReader r)
+        {
+            var e = new CircuitEntry
+            {
+                key = r.GetString(600), name = r.GetString(64), creator = r.GetString(32), nodes = r.GetIntArray(),
+                closed = r.GetBool(), preset = r.GetBool(), length = r.GetFloat(), races = r.GetInt(), created = r.GetLong()
+            };
+            if (e.nodes.Length > NetProto.MaxCircuitNodes) Array.Resize(ref e.nodes, NetProto.MaxCircuitNodes);
+            int n = r.GetByte();
+            for (int i = 0; i < n; i++) e.laps.Add(LapRecord.Read(r));
+            return e;
         }
     }
 

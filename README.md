@@ -5,11 +5,47 @@ la red viaria, los edificios, el relieve, el río Urumea y la toponimia proceden
 de Gipuzkoa) y de **geoEuskadi** (Gobierno Vasco). Los sentidos de circulación, semáforos, STOP, cedas y pasos de cebra
 vienen de **OpenStreetMap**. Los coches son modelos 3D **propios**, generados por código (dominio público, CC0) e inspirados en coches clásicos reales.
 
-El jugador **elige 4 cruces reales** del mapa: el juego une 1 → 2 → 3 → 4 → 1 por las calles más
-cortas, cierra el circuito y lanza una carrera de **varias vueltas** contra la IA. No hay vallas ni bordillos: las calles
+El jugador **elige cruces reales** del mapa (2 o más, en orden): el juego los une por las calles más cortas. Se puede
+hacer un recorrido **de A a B** (de la salida a la meta) o, pulsando otra vez el primer cruce, un circuito **cerrado** de
+**varias vueltas**, y correrlo contra la IA. No hay vallas ni bordillos: las calles
 laterales quedan abiertas y la calzada va pegada al terreno real.
 También hay un modo **Paseo libre**: conduces por todo Hernani sin carrera, con tráfico y peatones que respetan
 las señales.
+
+## Novedades (versión 14): circuitos nuevos, circuitos en el servidor y rankings
+> ⚠ **Hay que actualizar el servidor y todos los juegos** (PC y web). Los mensajes online han cambiado (protocolo v2): un juego v13
+> no entra en un servidor v14, ni al revés. Te avisará con *«Tu juego es más antiguo que el servidor»* o al revés.
+> Servidor: `cd ~/HernaniRacing && git pull && cd Server && sudo ./install.sh`. Después, rehaz los builds de PC y web (1.3 y 1.5).
+
+* **Nueva forma de hacer circuitos** (pantalla de circuito):
+  * Haz clic en los cruces **en orden**. El **1 es la SALIDA** y el último la **META**. Basta con **2 cruces** y no hay límite
+    práctico: caben **hasta 64**.
+  * Con 2 o más cruces ya es un recorrido **de A a B**: se corre una sola vez, de la salida a la meta. En el mapa salen los carteles
+    **SALIDA** y **META**.
+  * **Clic otra vez en el cruce 1 → el circuito se cierra** (↺) y se corre **a vueltas**, como antes. Otro clic en el 1 lo vuelve a abrir.
+  * **Con sólo 2 cruces y cerrado**, la vuelta **no repite la calle de la ida**: el juego busca otro camino de regreso. Si en el mapa no
+    hay ninguna vuelta del todo distinta (calles sin salida, un único puente…), repite **lo mínimo posible** y lo avisa:
+    *«…la vuelta repite N m de la ida (lo mínimo posible)»*.
+  * Clic en un cruce ya puesto (que no sea el 1) lo quita. **Retroceso** o **Deshacer** quitan el último y la ✕ de la lista quita
+    ese cruce.
+  * Los **circuitos predefinidos no cambian**: son los mismos 7, con el mismo trazado.
+* **Carreras offline: igual que antes.** Los circuitos de A a B también se pueden correr offline contra la IA.
+* **Circuitos online guardados en el servidor**, cada uno con su **creador**:
+  * En una sala online, el líder hace un circuito y lo guarda con un nombre (*Guardar en el servidor*). Queda a nombre de quien lo
+    creó y todos los jugadores lo ven en la lista *Circuitos del servidor* para correrlo.
+  * No se puede guardar dos veces el mismo trazado ni repetir un nombre. Sólo el creador puede borrar su circuito.
+  * Los predefinidos se apuntan solos, con el creador *Hernani Racing*, la primera vez que se corren online.
+* **Rankings** (botón **RANKINGS Y CIRCUITOS** en el menú online):
+  * **Circuitos más corridos**: cuántas carreras online se han corrido en cada circuito, con su creador y su récord.
+  * Clic en un circuito → **vueltas más rápidas** (top 10): **piloto, coche, tiempo** y fecha. En los de A a B cuenta el tiempo de
+    la salida a la meta.
+  * Cuentan sólo los jugadores (la IA no), un récord por piloto (se guarda su mejor tiempo) y sólo en circuitos guardados.
+  * Al batir un récord, sale un aviso en pantalla.
+  * Todo se guarda en el servidor, en **`/var/lib/hernani-server/circuits.json`**, y se conserva al actualizar.
+    `uninstall.sh` también lo borra.
+* **Lista de teclas en la pantalla principal**, en letra grande: conducción, vista y mapa. **La tecla O** (suelo: colores / foto
+  aérea) ya sale también en la línea de teclas de abajo, en carrera y en paseo libre.
+* Servidor: ahora se para bien con `systemctl stop` y al reiniciar la máquina.
 
 ## Novedades (versión 13): resultados sin tiempos inventados, suelo en el .exe y guía de instalación
 * **Resultados de la carrera.** Ya no se muestra un tiempo de llegada estimado para los que vienen detrás. Cada coche sale con:
@@ -127,7 +163,7 @@ las señales.
   * **Carrera**: vueltas, **rivales de la IA (ahora hasta 8)** y dificultad.
 * **Pantalla de coche**: todos los modelos dibujados en 3D con sus características (velocidad punta, aceleración, frenada, agarre, peso y medidas),
   y 12 colores.
-* **Pantalla de circuito y carrera**: circuitos predefinidos sobre el mapa, circuito propio con 4 cruces, vueltas, IA y tráfico/peatones sí o no.
+* **Pantalla de circuito y carrera**: circuitos predefinidos sobre el mapa, circuito propio con 4 cruces (desde la v14: 2 o más, abierto o cerrado), vueltas, IA y tráfico/peatones sí o no.
 * **Pantalla de paseo libre**: punto de salida (un cruce del mapa, un barrio o el centro de Hernani) y tráfico/peatones sí o no.
 * **Pantalla de jugar online**: el servidor por defecto ya viene configurado (sólo hay que escribir el nombre y conectar). Hay una pantalla de
   *Opciones de conexión* para cambiarlo. Crear sala, entrar con código y salas abiertas, con la lista actualizada cada 2 segundos.
@@ -283,7 +319,7 @@ Si un build web falla o se queda en negro: mira la consola del navegador (F12). 
 
 ### 1.6 Publicar la web en tu servidor (y quitarla)
 **Publicar o actualizar:**
-1. Sube el ZIP al servidor, por ejemplo con WinSCP o con `scp HernaniWeb.zip usuario@194.164.164.15:`
+1. Sube el ZIP al servidor, por ejemplo con WinSCP o con `scp HernaniWeb.zip usuario@IP-DEL-SERVIDOR:`
    (en PowerShell de Windows también existe `scp`).
 2. En el servidor: `cd ~/HernaniRacing/Server && sudo ./install-web.sh ~/HernaniWeb.zip`
    (hace falta el servidor instalado, 1.7; el script sustituye la versión web anterior).
@@ -331,9 +367,13 @@ Si un build web falla o se queda en negro: mira la consola del navegador (F12). 
 
 ### Pantalla de circuito y carrera (vista de mapa)
 * **Circuitos predefinidos**: un clic y el trazado aparece sobre el mapa.
-* **Tu circuito**: **clic** en 4 cruces (puntos amarillos) **en el orden de carrera**. Verás la longitud de vuelta, el desnivel acumulado,
+* **Tu circuito**: **clic** en 2 o más cruces (puntos amarillos) **en el orden de carrera**: el 1 es la **SALIDA** y el último la
+  **META** (recorrido de A a B, una vez). **Clic otra vez en el 1** cierra el circuito para correr **a vueltas** (otro clic lo abre).
+  Con 2 cruces cerrados, la vuelta va por otras calles distintas de la ida. Verás la longitud, el desnivel acumulado,
   la pendiente máxima, las cotas y las calles por las que pasa.
-* **Retroceso** quita el último cruce; la ✕ de cada fila quita ese cruce. **Aleatorio (aquí)** inventa un circuito donde estás mirando.
+* **Retroceso** o **Deshacer** quitan el último cruce; clic en un cruce ya puesto o la ✕ de su fila lo quitan.
+  **Aleatorio (aquí)** inventa un circuito donde estás mirando.
+* **Online**: lista **Circuitos del servidor** (los guardados por todos, con su creador) y **Guardar en el servidor** con un nombre.
 * **Ratón**: arrastrar para mover y rueda para zoom · **WASD / flechas** para desplazarse, **Q / E** para el zoom y **Mayús** para ir más rápido.
 * Avisos: te avisa si el trazado repite calle (ida y vuelta) o tiene un giro de 180º. Cambia el orden de los cruces para evitarlo.
 * Panel derecho: **vueltas**, **rivales IA**, **dificultad**, **cantidad de tráfico y de peatones** (por defecto, sin tráfico y peatones
@@ -488,7 +528,7 @@ Assets/HernaniRacing/
     Speedometer.cs          Velocímetro de aguja con lectura digital
     TreeRenderer.cs         Árboles con GPU instancing por bloques
     RoadGraph.cs            Grafo viario: cruces, Dijkstra, búsquedas espaciales
-    Circuit.cs              Circuito de 4 cruces: muestreo, trazada, perfil de velocidad, seguimiento
+    Circuit.cs              Circuito de 2–64 cruces (de A a B o cerrado): muestreo, trazada, perfil de velocidad, seguimiento
     CircuitSelector.cs      Pantallas de mapa: circuito y carrera / salida del paseo libre (IMGUI)
     CircuitVisuals.cs       Línea de salida/meta y pórtico (sin vallas ni bordillos)
     CarController.cs        Física de coche por raycast (suspensión, agarre, derrape)
@@ -530,6 +570,7 @@ Server/
   install.sh                Instalador del servidor para Ubuntu (systemd)
   server.example.json       Ejemplo de configuración
   HernaniServer/            Servidor multijugador (.NET 8, consola) + servidor web/WebSocket para la versión web
+                            + circuitos guardados y rankings (CircuitStore.cs)
   install-web.sh            Sube el build WebGL al servidor (/srv/hernani-web)
   uninstall.sh              Desinstala el servidor y la versión web sin dejar rastro
 ```
@@ -587,6 +628,9 @@ Al terminar muestra **la IP, el puerto y la contraseña**. Apúntalos: son lo qu
 ```
 `webPort` es el puerto TCP de la versión web (página + WebSocket en `/ws`; `0` la desactiva) y `webRoot` la carpeta del build WebGL.
 Si tu `server.json` es de antes y no los tiene, se usan esos valores por defecto.
+Opcionales (v14): `"maxCircuits": 500` (circuitos guardados como máximo), `"maxCircuitsPerPlayer": 40` y `"dataFile"`
+(dónde se guardan circuitos y rankings; vacío = `/var/lib/hernani-server/circuits.json` con el servicio). Copia de seguridad:
+`sudo cp /var/lib/hernani-server/circuits.json ~/`.
 Después de cambiarla: `sudo systemctl restart hernani-server`. Hay un ejemplo en `Server/server.example.json`.
 
 Comandos útiles:
@@ -690,7 +734,8 @@ sudo ./uninstall.sh --todo   # lo borra todo sin preguntar
 ```
 El script borra:
 1. el servicio `hernani-server` (lo para, lo desactiva y quita su fichero de systemd);
-2. `/opt/hernani-server` (programa), `/etc/hernani-server` (configuración y contraseña) y `/srv/hernani-web` (juego web);
+2. `/opt/hernani-server` (programa), `/etc/hernani-server` (configuración y contraseña), `/var/lib/hernani-server` (circuitos
+   guardados y rankings) y `/srv/hernani-web` (juego web);
 3. el usuario y el grupo `hernani`;
 4. las reglas de **ufw** que creó el instalador (7777/udp y 8080/tcp);
 5. los restos de la compilación (`/root/.nuget`, `/root/.dotnet`…);
@@ -703,7 +748,7 @@ Queda a mano: borrar en el **panel del proveedor** las reglas de 7777 UDP y 8080
 
 Comprobación final (no debe mostrar ninguna carpeta y el servicio debe salir como no encontrado):
 ```
-ls -d /opt/hernani-server /etc/hernani-server /srv/hernani-web 2>/dev/null; systemctl status hernani-server 2>&1 | head -1
+ls -d /opt/hernani-server /etc/hernani-server /var/lib/hernani-server /srv/hernani-web 2>/dev/null; systemctl status hernani-server 2>&1 | head -1
 ```
 
 ---

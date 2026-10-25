@@ -116,6 +116,7 @@ namespace HernaniRacing
             myColor = PlayerPrefs.GetInt("net.color", 0xD9141A);
             Core.RoomChanged += OnRoomChanged;
             Core.ErrorReceived += e => ShowToast(e, 5f);
+            Core.InfoReceived += e => ShowToast(e, 5f);
             Core.Disconnected += OnDisconnected;
         }
 
@@ -253,6 +254,15 @@ namespace HernaniRacing
         }
 
         /// <summary>Ajustes de la sala a partir de lo elegido en el selector (sólo el líder).</summary>
+        public static RoomSettings MakeSettings(MenuState st)
+        {
+            var rs = MakeSettings(st.sel, st.settings, st.presetName, st.freeStart);
+            rs.closed = st.closed;
+            rs.preset = st.isPreset;
+            rs.circuitCreator = st.creator ?? "";
+            return rs;
+        }
+
         public static RoomSettings MakeSettings(List<int> nodes, RaceSettings s, string circuitName, int freeStart)
         {
             return new RoomSettings

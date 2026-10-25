@@ -54,9 +54,17 @@ namespace HernaniRacing
             for (int y = 0; y < chh; y++) System.Array.Copy(basePx, (y0 + y) * PxX + x0, px, y * cw, cw);
             Vector2 off = new Vector2(x0, y0);
             int n = circuit.raw.Length;
-            for (int i = 0; i < n; i++)
+            int segs = circuit.closed ? n : n - 1;
+            for (int i = 0; i < segs; i++)
                 Line(px, cw, chh, ToPx(circuit.raw[i]) - off, ToPx(circuit.raw[(i + 1) % n]) - off, 2.0f, new Color32(255, 40, 30, 255));
-            Vector2 sp = ToPx(circuit.raw[0]) - off;
+            if (!circuit.closed)
+            {   // abierto: salida en verde y meta a cuadros
+                Vector2 st = ToPx(circuit.raw[circuit.startIdx]) - off;
+                for (int dx = -5; dx <= 5; dx++)
+                    for (int dy = -5; dy <= 5; dy++)
+                        Put(px, cw, chh, (int)st.x + dx, (int)st.y + dy, Mathf.Abs(dx) == 5 || Mathf.Abs(dy) == 5 ? new Color32(0, 0, 0, 255) : new Color32(40, 220, 60, 255));
+            }
+            Vector2 sp = ToPx(circuit.raw[circuit.finishIdx]) - off;
             for (int dx = -5; dx <= 5; dx++)
                 for (int dy = -5; dy <= 5; dy++)
                     Put(px, cw, chh, (int)sp.x + dx, (int)sp.y + dy, ((dx / 2 + dy / 2) & 1) == 0 ? new Color32(0, 0, 0, 255) : new Color32(255, 255, 255, 255));
@@ -169,12 +177,20 @@ namespace HernaniRacing
                 System.Func<Vector3, Vector2> tp = p => new Vector2((p.x - x0) * sc2, (p.z - z0) * sc2);
                 int n = circuit.raw.Length;
                 float rad = Mathf.Max(1.4f, size / 170f);
-                for (int i = 0; i < n; i++)
+                int segs = circuit.closed ? n : n - 1;
+                for (int i = 0; i < segs; i++)
                     Line(px, size, size, tp(circuit.raw[i]), tp(circuit.raw[(i + 1) % n]), rad + 1f, new Color32(20, 0, 0, 255));
-                for (int i = 0; i < n; i++)
+                for (int i = 0; i < segs; i++)
                     Line(px, size, size, tp(circuit.raw[i]), tp(circuit.raw[(i + 1) % n]), rad, new Color32(255, 45, 30, 255));
-                Vector2 sp = tp(circuit.raw[0]);
                 int q = Mathf.Max(3, size / 60);
+                if (!circuit.closed)
+                {
+                    Vector2 st = tp(circuit.raw[circuit.startIdx]);
+                    for (int dx = -q; dx <= q; dx++)
+                        for (int dy = -q; dy <= q; dy++)
+                            Put(px, size, size, (int)st.x + dx, (int)st.y + dy, Mathf.Abs(dx) == q || Mathf.Abs(dy) == q ? new Color32(0, 0, 0, 255) : new Color32(40, 220, 60, 255));
+                }
+                Vector2 sp = tp(circuit.raw[circuit.finishIdx]);
                 for (int dx = -q; dx <= q; dx++)
                     for (int dy = -q; dy <= q; dy++)
                         Put(px, size, size, (int)sp.x + dx, (int)sp.y + dy, (((dx + q) * 2 / q + (dy + q) * 2 / q) & 1) == 0 ? new Color32(0, 0, 0, 255) : new Color32(255, 255, 255, 255));
@@ -524,7 +540,7 @@ namespace HernaniRacing
             {
                 var t = pool[i];
                 if (!on) { if (t.gameObject.activeSelf) t.gameObject.SetActive(false); continue; }
-                float si = Mathf.Repeat(s + First + i * Spacing, circuit.length);
+                float si = circuit.ClampS(s + First + i * Spacing);
                 Vector3 p = circuit.PosAt(si, true);
                 Vector3 d = circuit.DirAt(si); d.y = 0;
                 if (d.sqrMagnitude < 1e-4f) continue;

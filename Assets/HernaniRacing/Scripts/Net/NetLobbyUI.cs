@@ -23,6 +23,19 @@ namespace HernaniRacing
 
         public bool ShowingOptions { get { return showOptions && !net.Connected; } }
         public void CloseOptions() { showOptions = false; }
+        public bool ShowingRankings { get { return showRankings && net.Connected; } }
+        public void CloseRankings() { showRankings = false; }
+
+        bool showRankings;
+        int rankPage;
+        string rankKey = "", confirmDelete = "";
+
+        void OpenRankings()
+        {
+            showRankings = true;
+            confirmDelete = "";
+            net.Core.RequestCircuits();
+        }
 
         public void OnShow()
         {
@@ -89,7 +102,8 @@ namespace HernaniRacing
         public void DrawScreen(MainMenu m, float W)
         {
             Styles();
-            if (!net.Connected) { if (showOptions) OptionsPanel(m, W); else ConnectPanel(m, W); }
+            if (!net.Connected) { showRankings = false; if (showOptions) OptionsPanel(m, W); else ConnectPanel(m, W); }
+            else if (showRankings) RankingsPanel(m, W);
             else if (!net.InRoom) BrowserPanel(m, W);
             else RoomHub(m, W);
         }
@@ -236,6 +250,8 @@ namespace HernaniRacing
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Desconectar", midBtn, GUILayout.Width(260), GUILayout.Height(50))) m.Queue(net.Disconnect);
             GUILayout.FlexibleSpace();
+            if (GUILayout.Button("RANKINGS Y CIRCUITOS", midBtn, GUILayout.Width(340), GUILayout.Height(50))) m.Queue(OpenRankings);
+            GUILayout.FlexibleSpace();
             if (GUILayout.Button("◄ Menú principal", midBtn, GUILayout.Width(300), GUILayout.Height(50))) m.Go(MenuScreen.Title);
             GUILayout.EndHorizontal();
             GUILayout.EndArea();
@@ -276,6 +292,8 @@ namespace HernaniRacing
             GUILayout.EndScrollView();
             if (room.settings.opponents > 0) GUILayout.Label("+ " + room.settings.opponents + " coche(s) de la IA en la carrera", small);
             GUILayout.Space(8);
+            if (GUILayout.Button("RANKINGS Y CIRCUITOS", midBtn, GUILayout.Height(50))) m.Queue(OpenRankings);
+            GUILayout.Space(4);
             if (GUILayout.Button("Salir de la sala", midBtn, GUILayout.Height(50))) m.Queue(net.Core.LeaveRoom);
             GUILayout.EndArea();
 
@@ -302,6 +320,7 @@ namespace HernaniRacing
                     if (GUILayout.Button("PASEO LIBRE ONLINE", midBtn, GUILayout.Height(84), GUILayout.MaxWidth(360))) m.Go(MenuScreen.Free);
                     GUILayout.EndHorizontal();
                     if (!mstate.CircuitOk) GUILayout.Label("Elige un circuito para poder correr.", small);
+                    else if (mstate.IsCustom) GUILayout.Label("Este circuito no está guardado en el servidor: no contará en los rankings. Guárdalo con un nombre en «Cambiar circuito».", small);
                     GUILayout.Label("En el paseo libre eliges la salida, el tráfico y los peatones antes de empezar.", small);
                 }
                 else
@@ -325,6 +344,140 @@ namespace HernaniRacing
             float gap = 20f, cardH = 430f;
             float cardW = (rw - 2 * gap) / 3f;
             m.DrawCards(rx, 1080 - 40 - cardH, cardW, cardH, gap, true);
+        }
+
+        // ------------------------------------------------------------------ rankings
+        static string Date(long unix)
+        {
+            if (unix <= 0) return "";
+            return System.DateTimeOffset.FromUnixTimeSeconds(unix).LocalDateTime.ToString("dd/MM/yyyy");
+        }
+
+        static string CarName(string id)
+        {
+            var md = CarModels.Get(id);
+            return md != null ? md.name : id;
+        }
+
+        /// <summary>Circuitos del servidor ordenados por carreras corridas y, del elegido, sus vueltas más rápidas.</summary>
+        void RankingsPanel(MainMenu m, float W)
+        {
+            var core = net.Core;
+            var list = core.Circuits;
+            Rect r = Centered(W, 1640, 960, 70);
+            GUI.Box(r, GUIContent.none, panel);
+            float x0 = r.x + 32, y0 = r.y + 20, iw = r.width - 64;
+            GUI.Label(new Rect(x0, y0, 700, 56), "RANKINGS", h1);
+            GUI.Label(new Rect(x0 + 260, y0 + 18, iw - 260, 30), "Carreras online en cada circuito del servidor y sus vueltas más rápidas (sólo jugadores; la IA no cuenta).", small);
+            float top = y0 + 74;
+
+            // ---- izquierda: ranking de circuitos (los más corridos)
+            float lw = Mathf.Floor(iw * 0.52f), rowH = 40f;
+            GUI.Label(new Rect(x0, top, lw, 30), "Circuitos más corridos", h2);
+            var head = new GUIStyle(small) { fontStyle = FontStyle.Bold };
+            float cy = top + 36;
+            float cPos = x0, cName = x0 + 44, cBy = x0 + lw * 0.47f, cRaces = x0 + lw * 0.68f, cRec = x0 + lw * 0.80f;
+            GUI.Label(new Rect(cPos, cy, 40, 24), "#", head);
+            GUI.Label(new Rect(cName, cy, cBy - cName, 24), "Circuito", head);
+            GUI.Label(new Rect(cBy, cy, cRaces - cBy, 24), "Creador", head);
+            GUI.Label(new Rect(cRaces, cy, cRec - cRaces, 24), "Carreras", head);
+            GUI.Label(new Rect(cRec, cy, x0 + lw - cRec, 24), "Récord", head);
+            cy += 28;
+            const int per = 15;
+            int pages = Mathf.Max(1, (list.Count + per - 1) / per);
+            rankPage = Mathf.Clamp(rankPage, 0, pages - 1);
+            if (!core.CircuitsLoaded) GUI.Label(new Rect(x0, cy, lw, 30), "Cargando...", txt);
+            else if (list.Count == 0) GUI.Label(new Rect(x0, cy, lw, 90), "Todavía no hay circuitos en el servidor. Se apuntan solos al correr online un circuito predefinido, y cada uno puede guardar los suyos en la pantalla del circuito.", txt);
+            CircuitEntry sel = null;
+            foreach (var e in list) if (e.key == rankKey) { sel = e; break; }
+            if (sel == null && list.Count > 0) { sel = list[0]; rankKey = sel.key; }
+            var cell = new GUIStyle(txt) { wordWrap = false, clipping = TextClipping.Clip, alignment = TextAnchor.MiddleLeft };
+            for (int i = rankPage * per; i < Mathf.Min(list.Count, (rankPage + 1) * per); i++)
+            {
+                var e = list[i];
+                Rect row = new Rect(x0 - 6, cy, lw + 6, rowH - 4);
+                bool on = sel == e;
+                GUI.DrawTexture(row, Tex.Solid(on ? new Color(1f, 0.8f, 0.2f, 0.28f) : new Color(1f, 1f, 1f, i % 2 == 0 ? 0.06f : 0.02f)));
+                var st = on ? new GUIStyle(cell) { fontStyle = FontStyle.Bold } : cell;
+                GUI.Label(new Rect(cPos, cy, 40, rowH - 4), (i + 1) + ".", st);
+                GUI.Label(new Rect(cName, cy, cBy - cName - 6, rowH - 4), e.name + (e.closed ? "" : "  (A→B)"), st);
+                GUI.Label(new Rect(cBy, cy, cRaces - cBy - 6, rowH - 4), e.creator, st);
+                GUI.Label(new Rect(cRaces, cy, cRec - cRaces - 6, rowH - 4), e.races.ToString(), st);
+                var b = e.BestLap();
+                GUI.Label(new Rect(cRec, cy, x0 + lw - cRec, rowH - 4), b != null ? NetProto.FormatLap(b.time) : "—", st);
+                if (GUI.Button(row, GUIContent.none, GUIStyle.none)) { var k = e.key; m.Queue(() => { rankKey = k; confirmDelete = ""; }); }
+                cy += rowH;
+            }
+            if (pages > 1)
+            {
+                float py = top + 36 + 28 + per * rowH + 6;
+                GUI.enabled = rankPage > 0;
+                if (GUI.Button(new Rect(x0, py, 70, 36), "◄", btn)) rankPage--;
+                GUI.enabled = rankPage < pages - 1;
+                if (GUI.Button(new Rect(x0 + lw - 70, py, 70, 36), "►", btn)) rankPage++;
+                GUI.enabled = true;
+                GUI.Label(new Rect(x0 + 80, py, lw - 160, 36), "página " + (rankPage + 1) + " de " + pages, new GUIStyle(small) { alignment = TextAnchor.MiddleCenter });
+            }
+
+            // ---- derecha: vueltas más rápidas del circuito elegido
+            float rx = x0 + lw + 40, rw = r.xMax - 32 - rx;
+            if (sel != null)
+            {
+                GUI.Label(new Rect(rx, top, rw, 34), sel.name, new GUIStyle(h2) { fontSize = 28 });
+                string km = sel.length > 0 ? (sel.length / 1000f).ToString("F2") + " km · " : "";
+                GUI.Label(new Rect(rx, top + 38, rw, 26), "de " + sel.creator + " · " + km + (sel.closed ? "cerrado, a vueltas" : "de A a B") + " · " + sel.nodes.Length + " cruces · " +
+                          sel.races + " carrera" + (sel.races == 1 ? "" : "s") + (sel.created > 0 ? " · desde " + Date(sel.created) : ""), small);
+                GUI.Label(new Rect(rx, top + 74, rw, 30), sel.closed ? "Vuelta rápida" : "Mejor tiempo (de la salida a la meta)", h2);
+                float ty = top + 110;
+                float tPos = rx, tNick = rx + 44, tCar = rx + rw * 0.36f, tTime = rx + rw * 0.66f, tDate = rx + rw * 0.83f;
+                GUI.Label(new Rect(tPos, ty, 40, 24), "#", head);
+                GUI.Label(new Rect(tNick, ty, tCar - tNick, 24), "Piloto", head);
+                GUI.Label(new Rect(tCar, ty, tTime - tCar, 24), "Coche", head);
+                GUI.Label(new Rect(tTime, ty, tDate - tTime, 24), "Tiempo", head);
+                GUI.Label(new Rect(tDate, ty, rx + rw - tDate, 24), "Fecha", head);
+                ty += 28;
+                if (sel.laps.Count == 0) GUI.Label(new Rect(rx, ty, rw, 60), "Nadie ha terminado todavía una carrera online en este circuito. ¡Sé el primero!", txt);
+                for (int i = 0; i < sel.laps.Count; i++)
+                {
+                    var l = sel.laps[i];
+                    bool me = l.nick == PlayerProfile.CleanNick(net.nick);
+                    var st = new GUIStyle(cell) { fontStyle = i == 0 || me ? FontStyle.Bold : FontStyle.Normal };
+                    if (i == 0) st.normal.textColor = new Color(1f, 0.85f, 0.25f);
+                    else if (me) st.normal.textColor = new Color(0.5f, 1f, 0.55f);
+                    GUI.DrawTexture(new Rect(rx - 6, ty, rw + 6, 36), Tex.Solid(new Color(1f, 1f, 1f, i % 2 == 0 ? 0.06f : 0.02f)));
+                    GUI.Label(new Rect(tPos, ty, 40, 36), (i + 1) + ".", st);
+                    GUI.Label(new Rect(tNick, ty, tCar - tNick - 6, 36), l.nick, st);
+                    GUI.Label(new Rect(tCar, ty, tTime - tCar - 6, 36), CarName(l.carId), st);
+                    GUI.Label(new Rect(tTime, ty, tDate - tTime - 6, 36), NetProto.FormatLap(l.time), st);
+                    GUI.Label(new Rect(tDate, ty, rx + rw - tDate, 36), Date(l.when), new GUIStyle(st) { fontSize = 15 });
+                    ty += 38;
+                }
+                // botones del circuito elegido
+                float by = r.yMax - 20 - 54 - 70;
+                bool canUse = net.InRoom && net.IsLeader && net.Room.phase == RoomPhase.Lobby;
+                if (canUse && GUI.Button(new Rect(rx, by, 360, 54), "USAR EN LA SALA", midBtn))
+                {
+                    var e = sel;
+                    m.Queue(() => { m.state.ApplyServer(e); showRankings = false; });
+                }
+                bool mine = !sel.preset && sel.creator == PlayerProfile.CleanNick(net.nick);
+                if (mine)
+                {
+                    bool sure = confirmDelete == sel.key;
+                    if (GUI.Button(new Rect(rx + rw - 300, by, 300, 54), sure ? "¿Seguro? Pulsa otra vez" : "Borrar mi circuito", btn))
+                    {
+                        var k = sel.key;
+                        if (sure) m.Queue(() => { core.DeleteCircuit(k); confirmDelete = ""; });
+                        else m.Queue(() => confirmDelete = k);
+                    }
+                }
+            }
+
+            // ---- abajo
+            float bottom = r.yMax - 20 - 54;
+            if (GUI.Button(new Rect(x0, bottom, 300, 54), "◄ Volver", midBtn)) m.Queue(() => showRankings = false);
+            if (GUI.Button(new Rect(x0 + 320, bottom, 220, 54), "↻ Actualizar", midBtn)) m.Queue(core.RequestCircuits);
+            GUI.Label(new Rect(x0 + 560, bottom, iw - 560, 54), "Cuentan las carreras online en circuitos guardados o predefinidos. Cada piloto aparece una vez, con su mejor vuelta.", small);
         }
     }
 }

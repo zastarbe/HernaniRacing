@@ -353,7 +353,7 @@ namespace HernaniRacing
                 GUI.Box(new Rect(W / 2 - 140, H - 120, 280, 40), GUIContent.none, box);
                 GUI.Label(new Rect(W / 2 - 140, H - 120, 280, 40), "VISTA TRASERA", mid);
             }
-            GUI.Label(new Rect(20, H - 34, 1400, 26), "W/S acelerar/frenar · A/D girar · Espacio freno de mano · R recolocar · C cámara · B mirar atrás · N zoom mapa · M mapa · Esc menú", small);
+            GUI.Label(new Rect(20, H - 34, 1400, 26), "W/S acelerar/frenar · A/D girar · Espacio freno de mano · R recolocar · C cámara · B mirar atrás · M mapa · N zoom mapa · O suelo · Esc menú", small);
 
             if (car != null) PenaltyHud.Draw(W, H, car);
             if (paused)

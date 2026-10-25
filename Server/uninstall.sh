@@ -9,6 +9,7 @@ APP_DIR=/opt/hernani-server
 CFG_DIR=/etc/hernani-server
 CFG=$CFG_DIR/server.json
 WEB_DIR=/srv/hernani-web
+DATA_DIR=/var/lib/hernani-server
 UNIT=/etc/systemd/system/$SVC.service
 ALL=0
 [ "${1:-}" = "--todo" ] && ALL=1
@@ -42,9 +43,9 @@ rm -f "$UNIT"
 systemctl daemon-reload
 systemctl reset-failed $SVC 2>/dev/null || true
 
-# 2) programa, configuración (contraseña incluida) y juego web
-rm -rf "$APP_DIR" "$CFG_DIR" "$WEB_DIR"
-echo "-> Borrados $APP_DIR, $CFG_DIR y $WEB_DIR"
+# 2) programa, configuración (contraseña incluida), circuitos/rankings online y juego web
+rm -rf "$APP_DIR" "$CFG_DIR" "$WEB_DIR" "$DATA_DIR" /var/lib/private/hernani-server
+echo "-> Borrados $APP_DIR, $CFG_DIR, $DATA_DIR (circuitos y rankings) y $WEB_DIR"
 
 # 3) usuario del sistema
 if id -u hernani >/dev/null 2>&1; then

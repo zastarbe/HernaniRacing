@@ -6,8 +6,9 @@ namespace HernaniRacing
 {
     /// <summary>
     /// Pantallas de mapa (vista cenital de Hernani):
-    ///  · Circuito: circuitos predefinidos o 4 cruces reales elegidos con el ratón (1→2→3→4→1 por calles reales),
-    ///    vueltas, rivales y tráfico/peatones de la carrera.
+    ///  · Circuito: circuitos predefinidos, los guardados en el servidor (online) o cruces reales elegidos con el
+    ///    ratón: 2 o más, de la salida (1) a la meta (el último); pulsando otra vez el 1 se cierra y se corre a vueltas.
+    ///    Vueltas, rivales y tráfico/peatones de la carrera.
     ///  · Paseo libre: punto de salida (un cruce o un barrio) y tráfico/peatones del paseo.
     /// Lo elegido se guarda en <see cref="MenuState"/>, que comparten todas las pantallas.
     /// </summary>
@@ -37,10 +38,19 @@ namespace HernaniRacing
         public MapMode Mode { get { return mode; } }
         bool Locked { get { return menu != null && menu.RaceLocked; } }
 
-        static readonly Color[] SelColors =
+        static readonly Color StartColor = new Color(0.1f, 0.85f, 0.2f), MidColor = new Color(0.15f, 0.55f, 1f), EndColor = new Color(1f, 0.25f, 0.2f);
+        int srvPage;
+        string saveName = "";
+
+        /// <summary>Color del cruce i: la salida en verde, la meta (abierto) en rojo y los de paso en azul.</summary>
+        Color SelColor(int i)
         {
-            new Color(0.1f, 0.85f, 0.2f), new Color(0.15f, 0.55f, 1f), new Color(1f, 0.6f, 0.1f), new Color(0.85f, 0.2f, 0.9f)
-        };
+            if (i == 0) return StartColor;
+            if (!state.closed && i == state.sel.Count - 1) return EndColor;
+            return MidColor;
+        }
+
+        bool Online { get { return menu != null && menu.net != null && menu.net.Connected; } }
 
         public void Open(MapMode m)
         {
@@ -124,13 +134,19 @@ namespace HernaniRacing
         {
             if (Locked) return;
             if (mode == MapMode.Free) { state.freeStart = node; return; }
-            state.presetName = "";
             var sel = state.sel;
             int i = sel.IndexOf(node);
-            if (i >= 0) sel.RemoveAt(i);
-            else if (sel.Count < 4) sel.Add(node);
-            else sel[3] = node;
-            state.Rebuild();
+            if (i == 0 && sel.Count >= 2) state.SetClosed(!state.closed);   // otra vez el 1: cerrar (o volver a abrir)
+            else if (i >= 0) state.RemovePoint(i);
+            else state.AddPoint(node);
+        }
+
+        /// <summary>Retroceso / botón: deshace lo último (abrir el circuito si estaba cerrado, si no quitar el último cruce).</summary>
+        void UndoLast()
+        {
+            if (Locked || state.sel.Count == 0) return;
+            if (state.closed) state.SetClosed(false);
+            else state.RemovePoint(state.sel.Count - 1);
         }
 
         void UpdateRouteLine()
@@ -139,17 +155,23 @@ namespace HernaniRacing
             if (routeLine == null || world == null) return;
             var pts = new List<Vector3>();
             var sel = state.sel;
-            if (state.circuit != null && state.circuit.raw != null)
+            var c = state.circuit;
+            if (c != null && c.raw != null && c.error == null)
             {
-                foreach (var p in state.circuit.raw) pts.Add(p + Vector3.up * 3f);
-                pts.Add(state.circuit.raw[0] + Vector3.up * 3f);
+                if (c.closed)
+                {
+                    foreach (var p in c.raw) pts.Add(p + Vector3.up * 3f);
+                    pts.Add(c.raw[0] + Vector3.up * 3f);
+                }
+                else for (int i = c.startIdx; i <= c.finishIdx; i++) pts.Add(c.raw[i] + Vector3.up * 3f);
             }
             else if (sel.Count >= 2)
             {
                 var used = new HashSet<int>();
-                for (int i = 0; i + 1 < sel.Count; i++)
+                int legs = state.closed ? sel.Count : sel.Count - 1;
+                for (int i = 0; i < legs; i++)
                 {
-                    var path = world.graph.ShortestPath(sel[i], sel[i + 1], used, 4f);
+                    var path = world.graph.ShortestPath(sel[i], sel[(i + 1) % sel.Count], used, 4f);
                     if (path == null) continue;
                     foreach (var st in path)
                     {
@@ -325,14 +347,23 @@ namespace HernaniRacing
             if (mode == MapMode.Circuit)
             {
                 var sel = state.sel;
+                var ns = new GUIStyle(tagBold) { fontSize = sel.Count > 9 ? 16 : 20 }; ns.normal.textColor = Color.black;
+                var lt = new GUIStyle(tip) { fontStyle = FontStyle.Bold };
                 for (int i = 0; i < sel.Count; i++)
                 {
                     Vector3 sp = cam.WorldToScreenPoint(g.nodes[sel[i]]);
                     Vector2 gp = new Vector2(sp.x, Screen.height - sp.y);
                     GUI.DrawTexture(new Rect(gp.x - 17, gp.y - 17, 34, 34), Tex.Solid(Color.black));
-                    GUI.DrawTexture(new Rect(gp.x - 15, gp.y - 15, 30, 30), Tex.Solid(SelColors[i]));
-                    var ns = new GUIStyle(tagBold) { fontSize = 20 }; ns.normal.textColor = Color.black;
+                    GUI.DrawTexture(new Rect(gp.x - 15, gp.y - 15, 30, 30), Tex.Solid(SelColor(i)));
                     GUI.Label(new Rect(gp.x - 15, gp.y - 15, 30, 30), (i + 1).ToString(), ns);
+                    string tag = null;
+                    if (i == 0) tag = state.closed ? " SALIDA Y META " : " SALIDA ";
+                    else if (!state.closed && i == sel.Count - 1) tag = " META ";
+                    if (tag != null)
+                    {
+                        var ls = lt.CalcSize(new GUIContent(tag));
+                        GUI.Box(new Rect(gp.x - ls.x / 2, gp.y - 50, ls.x, 28), tag, lt);
+                    }
                 }
             }
             else
@@ -355,8 +386,16 @@ namespace HernaniRacing
                 Vector2 gp = new Vector2(sp.x, Screen.height - sp.y);
                 GUI.DrawTexture(new Rect(gp.x - 9, gp.y - 9, 18, 18), Tex.Solid(Color.white));
                 var zone = world.ZoneAt(g.nodes[hover]);
-                string t = " " + g.JunctionLabel(hover) + "  ·  " + (zone != null ? zone.name : "") + "  ·  " + g.nodes[hover].y.ToString("F0") + " m " +
-                           (mode == MapMode.Free ? " · clic = salir de aquí " : "");
+                string act = "";
+                if (mode == MapMode.Free) act = " · clic = salir de aquí ";
+                else
+                {
+                    int si = state.sel.IndexOf(hover);
+                    if (si == 0 && state.sel.Count >= 2) act = state.closed ? " · clic = abrir (de A a B) " : " · clic = cerrar el circuito (a vueltas) ";
+                    else if (si >= 0) act = " · clic = quitar ";
+                    else act = state.sel.Count == 0 ? " · clic = SALIDA " : " · clic = añadir (" + (state.sel.Count + 1) + ") ";
+                }
+                string t = " " + g.JunctionLabel(hover) + "  ·  " + (zone != null ? zone.name : "") + "  ·  " + g.nodes[hover].y.ToString("F0") + " m " + act;
                 var size = tip.CalcSize(new GUIContent(t));
                 GUI.Box(new Rect(mouse.x + 16, mouse.y + 12, size.x, 30), t, tip);
             }
@@ -388,7 +427,7 @@ namespace HernaniRacing
             if (ev.type == EventType.MouseUp) dragging = false;
             if (mode == MapMode.Circuit && ev.type == EventType.KeyDown && ev.keyCode == KeyCode.Backspace && state.sel.Count > 0 && !Locked && GUIUtility.keyboardControl == 0)
             {
-                pending = () => { if (state.sel.Count > 0) { state.sel.RemoveAt(state.sel.Count - 1); state.presetName = ""; state.Rebuild(); } };
+                pending = UndoLast;
                 ev.Use();
             }
 
@@ -448,53 +487,151 @@ namespace HernaniRacing
             GUILayout.Label("Circuitos predefinidos", h2);
             foreach (var p in state.Presets)
             {
-                bool on = p.name == state.presetName;
+                bool on = state.isPreset && p.name == state.presetName;
                 if (GUILayout.Button((on ? "► " : "") + p.name + (p.length > 0 ? "  (" + (p.length / 1000f).ToString("F1") + " km)" : ""), on ? onBtn : GUI.skin.button, GUILayout.Height(30)))
                 { var pp = p; pending = () => ApplyPreset(pp); }
             }
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Aleatorio (aquí)", GUILayout.Height(30))) pending = RandomCircuit;
-            if (GUILayout.Button("Borrar cruces", GUILayout.Height(30))) pending = () => { state.SetNodes(new int[0], ""); };
+            if (GUILayout.Button("Borrar cruces", GUILayout.Height(30))) pending = state.ClearPoints;
             GUILayout.EndHorizontal();
+
+            if (Online) ServerCircuits();
 
             GUILayout.Space(8);
             GUILayout.Label("O haz tu circuito", h2);
-            GUILayout.Label("Haz clic en 4 cruces (puntos amarillos) en el orden de carrera: se unen 1 → 2 → 3 → 4 → 1 por calles reales.", txt);
-            GUILayout.Label("Ratón: arrastrar = mover, rueda = zoom · WASD/flechas, Q/E · Retroceso = quitar el último", small);
-            for (int i = 0; i < 4; i++)
-            {
-                GUILayout.BeginHorizontal();
-                var c = GUI.color; GUI.color = SelColors[i];
-                GUILayout.Label("●", h2, GUILayout.Width(22));
-                GUI.color = c;
-                if (i < sel.Count)
-                {
-                    var z = world.ZoneAt(g.nodes[sel[i]]);
-                    GUILayout.Label((i + 1) + ". " + g.JunctionLabel(sel[i]) + (z != null ? "  (" + z.name + ")" : ""), txt);
-                    if (GUILayout.Button("✕", GUILayout.Width(30))) { int ri = i; pending = () => { if (ri < state.sel.Count) { state.sel.RemoveAt(ri); state.presetName = ""; state.Rebuild(); } }; }
-                }
-                else GUILayout.Label((i + 1) + ". —", txt);
-                GUILayout.EndHorizontal();
-            }
+            GUILayout.Label("Haz clic en los cruces (puntos amarillos) en orden: el 1 es la SALIDA y el último la META. " +
+                            "Con 2 cruces ya se puede correr. Pulsa otra vez el 1 para CERRAR el circuito y correr a vueltas.", txt);
+            GUILayout.Label("Ratón: arrastrar = mover, rueda = zoom · WASD/flechas, Q/E · Retroceso = deshacer", small);
+            PointList(g, sel);
+            GUILayout.BeginHorizontal();
+            GUI.enabled = !lockUI && sel.Count > 0;
+            if (GUILayout.Button("Deshacer", GUILayout.Height(30))) pending = UndoLast;
+            GUI.enabled = !lockUI && sel.Count >= 2;
+            if (GUILayout.Button(state.closed ? "Abrir: de A a B" : "Cerrar: volver al 1", GUILayout.Height(30))) pending = () => state.SetClosed(!state.closed);
+            GUI.enabled = !lockUI;
+            GUILayout.EndHorizontal();
+
             GUILayout.Space(4);
             var circuit = state.circuit;
             if (state.CircuitOk)
             {
                 var streets = new HashSet<string>();
-                foreach (var st in circuit.steps) streets.Add(g.edges[st.edge].name);
-                GUILayout.Label(state.CircuitName, h2);
-                GUILayout.Label("Vuelta: " + (circuit.length / 1000f).ToString("F2") + " km   ·   Total: " + (circuit.length * s.laps / 1000f).ToString("F1") + " km", txt);
+                foreach (var st in circuit.RouteSteps) streets.Add(g.edges[st.edge].name);
+                GUILayout.Label(state.CircuitName + (string.IsNullOrEmpty(state.creator) ? "" : "  ·  de " + state.creator), h2);
+                if (circuit.closed)
+                    GUILayout.Label("Circuito cerrado, a vueltas · Vuelta: " + (circuit.length / 1000f).ToString("F2") + " km · Total: " + (circuit.length * s.laps / 1000f).ToString("F1") + " km", txt);
+                else
+                    GUILayout.Label("De A a B (una sola vez) · Recorrido: " + (circuit.LapLength / 1000f).ToString("F2") + " km", txt);
                 GUILayout.Label("Desnivel: +" + circuit.elevationGain.ToString("F0") + " m   ·   Pendiente máx.: " + circuit.maxGradePct.ToString("F0") + " %", txt);
                 GUILayout.Label("Cotas: " + circuit.minElev.ToString("F0") + " – " + circuit.maxElev.ToString("F0") + " m   ·   " + streets.Count + " calles distintas", txt);
-                if (circuit.reusedLength > 1f)
+                if (!string.IsNullOrEmpty(circuit.note)) GUILayout.Label("⚠ " + circuit.note, txt);
+                else if (circuit.reusedLength > 1f)
                     GUILayout.Label("⚠ Se repiten " + circuit.reusedLength.ToString("F0") + " m de calle (ida y vuelta). Prueba otro orden de cruces.", txt);
                 if (circuit.hasUTurn) GUILayout.Label("⚠ Incluye un giro de 180º.", txt);
                 GUILayout.Label("Calles: " + string.Join(", ", streets.Take(10).ToArray()) + (streets.Count > 10 ? "…" : ""), small);
+                if (Online && state.IsCustom && !lockUI) SaveBox();
             }
             else if (!string.IsNullOrEmpty(state.info)) GUILayout.Label("⚠ " + state.info, txt);
-            else GUILayout.Label(sel.Count < 4 ? "Faltan " + (4 - sel.Count) + " cruces." : "", txt);
+            else GUILayout.Label(sel.Count == 0 ? "Elige la salida y al menos otro cruce." : (sel.Count < 2 ? "Falta al menos otro cruce (la meta)." : ""), txt);
             GUI.enabled = true;
         }
+
+        /// <summary>Lista de los cruces elegidos (si son muchos, el principio y el final).</summary>
+        void PointList(RoadGraph g, List<int> sel)
+        {
+            if (sel.Count == 0) { GUILayout.Label("1. —  (salida)", txt); return; }
+            int n = sel.Count;
+            for (int i = 0; i < n; i++)
+            {
+                if (n > 8 && i == 3)
+                {
+                    GUILayout.Label("      … " + (n - 6) + " cruces más …", small);
+                    i = n - 4;
+                    continue;
+                }
+                GUILayout.BeginHorizontal();
+                var c = GUI.color; GUI.color = SelColor(i);
+                GUILayout.Label("●", h2, GUILayout.Width(22));
+                GUI.color = c;
+                var z = world.ZoneAt(g.nodes[sel[i]]);
+                string role = i == 0 ? (state.closed ? "  [salida y meta]" : "  [salida]") : (!state.closed && i == n - 1 ? "  [meta]" : "");
+                GUILayout.Label((i + 1) + ". " + g.JunctionLabel(sel[i]) + (z != null ? "  (" + z.name + ")" : "") + role, txt);
+                if (GUILayout.Button("✕", GUILayout.Width(30))) { int ri = i; pending = () => state.RemovePoint(ri); }
+                GUILayout.EndHorizontal();
+            }
+            if (state.closed) GUILayout.Label("      ↺ vuelve al 1", small);
+        }
+
+        /// <summary>Circuitos guardados en el servidor (online): de 6 en 6, los más corridos primero.</summary>
+        void ServerCircuits()
+        {
+            var core = menu.net.Core;
+            var list = core.Circuits.Where(e => !e.preset).ToList();
+            GUILayout.Space(6);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Circuitos del servidor", h2);
+            GUILayout.FlexibleSpace();
+            if (GUILayout.Button("↻", GUILayout.Width(34), GUILayout.Height(26))) pending = core.RequestCircuits;
+            GUILayout.EndHorizontal();
+            if (!core.CircuitsLoaded) { GUILayout.Label("Cargando...", small); return; }
+            if (list.Count == 0) { GUILayout.Label("Todavía no hay ninguno: haz uno y guárdalo con un nombre.", small); return; }
+            const int per = 6;
+            int pages = (list.Count + per - 1) / per;
+            srvPage = Mathf.Clamp(srvPage, 0, pages - 1);
+            string cur = state.Key;
+            for (int i = srvPage * per; i < Mathf.Min(list.Count, (srvPage + 1) * per); i++)
+            {
+                var e = list[i];
+                bool on = e.key == cur && state.CircuitOk;
+                string len = e.length > 0 ? (e.length / 1000f).ToString("F1") + " km · " : "";
+                string label = (on ? "► " : "") + e.name + "  ·  " + e.creator + "  ·  " + len + (e.closed ? "a vueltas" : "A→B") + "  ·  " + e.races + " carr.";
+                if (GUILayout.Button(label, on ? onBtn : GUI.skin.button, GUILayout.Height(28)))
+                {
+                    var ee = e;
+                    pending = () => { if (Locked) return; state.ApplyServer(ee); if (state.CircuitOk) FocusCircuit(); };
+                }
+            }
+            if (pages > 1)
+            {
+                GUILayout.BeginHorizontal();
+                GUI.enabled = !Locked && srvPage > 0;
+                if (GUILayout.Button("◄", GUILayout.Width(50), GUILayout.Height(26))) srvPage--;
+                GUI.enabled = !Locked;
+                GUILayout.Label("página " + (srvPage + 1) + " de " + pages, new GUIStyle(small) { alignment = TextAnchor.MiddleCenter }, GUILayout.Height(26));
+                GUI.enabled = !Locked && srvPage < pages - 1;
+                if (GUILayout.Button("►", GUILayout.Width(50), GUILayout.Height(26))) srvPage++;
+                GUI.enabled = !Locked;
+                GUILayout.EndHorizontal();
+            }
+        }
+
+        /// <summary>Guardar el circuito hecho a mano en el servidor (con su nombre y tú como creador).</summary>
+        void SaveBox()
+        {
+            GUILayout.Space(6);
+            GUILayout.Label("Guardar en el servidor", h2);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Nombre", txt, GUILayout.Width(70));
+            saveName = GUILayout.TextField(saveName ?? "", Net.NetProto.MaxCircuitName, GUILayout.Height(30));
+            GUILayout.EndHorizontal();
+            bool ok = (saveName ?? "").Trim().Length > 0;
+            GUI.enabled = ok && !Locked;
+            if (GUILayout.Button("GUARDAR (creador: " + PlayerProfileNick() + ")", GUILayout.Height(34)))
+            {
+                string nm = saveName.Trim();
+                pending = () =>
+                {
+                    if (!state.CircuitOk) return;
+                    menu.net.Core.SaveCircuit(nm, state.sel, state.closed, state.circuit.LapLength);
+                    GUIUtility.keyboardControl = 0;
+                };
+            }
+            GUI.enabled = !Locked;
+            GUILayout.Label("Los demás jugadores podrán correrlo y tendrá su ranking de vueltas rápidas.", small);
+        }
+
+        string PlayerProfileNick() { return Net.PlayerProfile.CleanNick(menu.net.nick); }
 
         void CircuitRight()
         {

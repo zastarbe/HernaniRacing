@@ -19,11 +19,17 @@ namespace HernaniRacing.Net
 
         public ClientState State { get; private set; }
         public string LastError { get; private set; }
+        public void ClearError() { LastError = null; }
         public byte MyId { get; private set; }
         public string ServerName { get; private set; } = "";
         public string Motd { get; private set; } = "";
         public RoomInfo Room { get; private set; }
         public List<RoomListEntry> Rooms { get; private set; } = new List<RoomListEntry>();
+        /// <summary>Circuitos guardados en el servidor (con sus rankings). Se piden con RequestCircuits.</summary>
+        public List<CircuitEntry> Circuits { get; private set; } = new List<CircuitEntry>();
+        /// <summary>Cambia cada vez que llega la lista de circuitos.</summary>
+        public int CircuitsVersion { get; private set; }
+        public bool CircuitsLoaded { get; private set; }
         public int Ping { get { int t = linked ? transport.Rtt : -1; return t >= 0 ? t : lastRttMs; } }
         /// <summary>Conexión por WebSocket (versión web) en vez de UDP.</summary>
         public bool IsWeb { get { return transport.IsWeb; } }
@@ -39,6 +45,8 @@ namespace HernaniRacing.Net
         public event Action RoomChanged;            // cambia la sala (jugadores, ajustes, fase...)
         public event Action RoomListChanged;
         public event Action<string> ErrorReceived;
+        public event Action<string> InfoReceived;    // avisos buenos del servidor (circuito guardado, récord...)
+        public event Action CircuitsChanged;
         public event Action Disconnected;
         public delegate void RelayHandler(byte from, RelayKind kind, double time, int count, NetDataReader r);
         public event RelayHandler RelayReceived;
@@ -86,6 +94,8 @@ namespace HernaniRacing.Net
             linked = false;
             Room = null;
             Rooms.Clear();
+            Circuits = new List<CircuitEntry>();
+            CircuitsLoaded = false;
             State = ClientState.Offline;
         }
 
@@ -130,6 +140,32 @@ namespace HernaniRacing.Net
         public void EnterGame() { w.Reset(); w.Put((byte)Msg.EnterGame); SendReliable(); }
         public void LeaveGame() { w.Reset(); w.Put((byte)Msg.LeaveGame); SendReliable(); }
         public void EndGame() { w.Reset(); w.Put((byte)Msg.EndGame); SendReliable(); }
+
+        // ---- circuitos del servidor y rankings
+        public void RequestCircuits() { w.Reset(); w.Put((byte)Msg.ListCircuits); SendReliable(); }
+
+        /// <summary>Guarda un circuito en el servidor (el creador es el nombre con el que estás conectado).</summary>
+        public void SaveCircuit(string name, IList<int> nodes, bool closed, float length)
+        {
+            w.Reset(); w.Put((byte)Msg.SaveCircuit);
+            w.Put(name ?? "");
+            var arr = new int[nodes.Count];
+            for (int i = 0; i < arr.Length; i++) arr[i] = nodes[i];
+            w.PutArray(arr);
+            w.Put(closed); w.Put(length);
+            SendReliable();
+        }
+
+        /// <summary>Al cruzar la meta en una carrera online: mi mejor vuelta y mi tiempo total (para los rankings).</summary>
+        public void SendRaceResult(float bestLap, float totalTime, string carId, byte laps)
+        {
+            w.Reset(); w.Put((byte)Msg.RaceResult);
+            w.Put(bestLap); w.Put(totalTime); w.Put(carId ?? ""); w.Put(laps);
+            SendReliable();
+        }
+
+        /// <summary>Borra un circuito del servidor (sólo su creador).</summary>
+        public void DeleteCircuit(string key) { w.Reset(); w.Put((byte)Msg.DeleteCircuit); w.Put(key ?? ""); SendReliable(); }
 
         /// <summary>Manda un paquete Relay ya montado con RelayCodec (no fiable: si se pierde llega el siguiente).</summary>
         public void SendRelay(NetDataWriter packet, RelayKind kind)
@@ -229,6 +265,20 @@ namespace HernaniRacing.Net
                             ErrorReceived?.Invoke(e);
                             break;
                         }
+                    case Msg.CircuitList:
+                        {
+                            int n = r.GetUShort();
+                            var list = new List<CircuitEntry>(n);
+                            for (int i = 0; i < n; i++) list.Add(CircuitEntry.Read(r));
+                            Circuits = list;
+                            CircuitsVersion++;
+                            CircuitsLoaded = true;
+                            CircuitsChanged?.Invoke();
+                            break;
+                        }
+                    case Msg.Info:
+                        InfoReceived?.Invoke(r.GetString(300));
+                        break;
                     case Msg.RelayFrom:
                         {
                             byte from = r.GetByte();

@@ -133,7 +133,7 @@ namespace HernaniRacing
 
         RoomSettings CurrentSettings()
         {
-            var rs = NetSession.MakeSettings(state.sel, state.settings, state.presetName, state.freeStart);
+            var rs = NetSession.MakeSettings(state);
             int maxAi = MaxOpponents();
             if (rs.opponents > maxAi) rs.opponents = (byte)maxAi;
             return rs;
@@ -172,7 +172,7 @@ namespace HernaniRacing
             s.traffic = r.traffic; s.pedestrians = r.pedestrians;
             s.freeTraffic = r.freeTraffic; s.freePedestrians = r.freePedestrians;
             state.freeStart = r.freeStartNode;
-            state.SetNodes(r.nodes ?? new int[0], r.circuitName);
+            state.SetNodes(r.nodes ?? new int[0], r.closed, r.circuitName, r.circuitCreator, r.preset);
         }
 
         void Update()
@@ -182,6 +182,21 @@ namespace HernaniRacing
             if (net != null)
             {
                 net.SetCarAndColor(state.settings.carId, state.settings.paint);
+                if (net.Connected)
+                {
+                    if (!net.Core.CircuitsLoaded && Time.unscaledTime >= nextCircuitReq) { nextCircuitReq = Time.unscaledTime + 5f; net.Core.RequestCircuits(); }
+                    // un circuito hecho a mano que ya está guardado en el servidor toma su nombre y su creador
+                    if (seenCircuits != net.Core.CircuitsVersion || seenState != state.version)
+                    {
+                        seenCircuits = net.Core.CircuitsVersion; seenState = state.version;
+                        if (state.CircuitOk && state.IsCustom && !RaceLocked)
+                        {
+                            string key = state.Key;
+                            foreach (var e in net.Core.Circuits)
+                                if (e.key == key) { state.presetName = e.name; state.creator = e.creator; state.isPreset = e.preset; state.version++; seenState = state.version; break; }
+                        }
+                    }
+                }
                 if (InRoom) SyncOnline(); else { lastSent = null; applied = null; }
                 // si me echan de la sala (o se cae la conexión) estando en una pantalla de sala, vuelvo a la principal
                 if (!InRoom && (screen == MenuScreen.Circuit || screen == MenuScreen.Free) && wasInRoom) Show(MenuScreen.Online);
@@ -194,10 +209,13 @@ namespace HernaniRacing
             if (!typing && GameInput.PausePressed)
             {
                 if (screen == MenuScreen.Online && lobby.ShowingOptions) lobby.CloseOptions();
+                else if (screen == MenuScreen.Online && lobby.ShowingRankings) lobby.CloseRankings();
                 else if (screen != MenuScreen.Title && !(screen == MenuScreen.Online && InRoom)) Back();
             }
         }
         bool wasInRoom;
+        float nextCircuitReq;
+        int seenCircuits = -1, seenState = -1;
 
         // ------------------------------------------------------------------ estilos
         GUIStyle titleBig, titleShadow, subtitle, h1, h2, txt, small, panel, cardBox, bigBtn, midBtn, onBtn, btn, statVal, carName;
@@ -297,9 +315,15 @@ namespace HernaniRacing
             SurfaceChooser(wide ? new Rect(60, 620, 420, 92) : new Rect(60, 300, Mathf.Min(560f, W - 120f), 92));
             if (wide)
             {
-                GUI.Label(new Rect(64, 552, 420, 60), state.CircuitOk ? "Carrera de " + state.settings.laps + " vuelta" + (state.settings.laps == 1 ? "" : "s") + " en " + state.CircuitName + "." :
-                    "Elige un circuito para correr.", small);
+                string what;
+                if (!state.CircuitOk) what = "Elige un circuito para correr.";
+                else if (!state.circuit.closed) what = "Carrera de la salida a la meta en " + state.CircuitName + ".";
+                else what = "Carrera de " + state.settings.laps + " vuelta" + (state.settings.laps == 1 ? "" : "s") + " en " + state.CircuitName + ".";
+                GUI.Label(new Rect(64, 552, 420, 60), what, small);
             }
+            // teclas, bien grandes (todas las del juego)
+            if (wide) ControlsPanel(new Rect(540, 200, W - 600, 380));
+            else ControlsPanel(new Rect(Mathf.Min(640f, W * 0.45f), 300, W - 60 - Mathf.Min(640f, W * 0.45f), 285));
 
             // resúmenes
             float gap = 24f, cardH = 430f;
@@ -310,6 +334,67 @@ namespace HernaniRacing
 
             GUI.Label(new Rect(60, 1080 - 34, W - 120, 24),
                 "Datos y ortofoto: © b5m Gipuzkoa (CC BY) · © geoEuskadi · © IGN (MDT05) · © OpenStreetMap contributors (ODbL) · tráfico: aforos DFG / Open Data Euskadi · coches propios (CC0)", small);
+        }
+
+        static readonly string[][] KeysDrive =
+        {
+            new[] { "W  ↑", "Acelerar" }, new[] { "S  ↓", "Frenar / marcha atrás" }, new[] { "A D  ← →", "Girar" },
+            new[] { "Espacio", "Freno de mano" }, new[] { "R", "Recolocar el coche" }, new[] { "Esc  P", "Pausa / menú" }
+        };
+        static readonly string[][] KeysView =
+        {
+            new[] { "C", "Cambiar de cámara" }, new[] { "B", "Mirar atrás" }, new[] { "M", "Mapa: ver / ocultar" },
+            new[] { "N", "Zoom del mapa" }, new[] { "F", "Flechas de guía (carrera)" }, new[] { "O", "Suelo: colores / foto aérea" }
+        };
+        static readonly string[][] KeysMap =
+        {
+            new[] { "Clic", "Cruce (en el 1 = cerrar)" }, new[] { "Arrastrar", "Mover el mapa" }, new[] { "Rueda  Q E", "Acercar / alejar" },
+            new[] { "WASD", "Mover (Mayús = rápido)" }, new[] { "Retroceso", "Quitar el último cruce" }, new[] { "Esc", "Volver" }
+        };
+        GUIStyle keyCap, keyTxt, keyHead;
+        int keyFont = -1;
+
+        /// <summary>Lista de teclas legible en la pantalla principal.</summary>
+        void ControlsPanel(Rect r)
+        {
+            if (r.width < 420) return;
+            int fs = r.width >= 1150 ? 20 : (r.width >= 900 ? 17 : 14);
+            if (keyFont != fs)
+            {
+                keyFont = fs;
+                keyCap = new GUIStyle(GUI.skin.box) { fontSize = fs, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter, wordWrap = false };
+                keyCap.normal.background = Tex.Solid(new Color(0.93f, 0.93f, 0.95f, 0.97f));
+                keyCap.normal.textColor = new Color(0.08f, 0.09f, 0.12f);
+                keyTxt = new GUIStyle(GUI.skin.label) { fontSize = fs, alignment = TextAnchor.MiddleLeft, wordWrap = false };
+                keyTxt.normal.textColor = Color.white;
+                keyHead = new GUIStyle(GUI.skin.label) { fontSize = fs + 2, fontStyle = FontStyle.Bold };
+                keyHead.normal.textColor = new Color(1f, 0.84f, 0.22f);
+            }
+            GUI.Box(r, GUIContent.none, panel);
+            Accent(r);
+            float pad = 18f, colGap = 22f;
+            float colW = (r.width - 2 * pad - 2 * colGap) / 3f;
+            float rowH = fs * 1.75f;
+            float capW = Mathf.Min(colW * 0.42f, fs * 6.2f);
+            string[] heads = { "CONDUCIR", "CÁMARA Y MAPA", "PANTALLA DEL MAPA" };
+            var cols = new[] { KeysDrive, KeysView, KeysMap };
+            for (int c = 0; c < 3; c++)
+            {
+                float x = r.x + pad + c * (colW + colGap);
+                float y = r.y + 12;
+                GUI.Label(new Rect(x, y, colW, fs * 1.6f), heads[c], keyHead);
+                y += fs * 1.75f;
+                foreach (var k in cols[c])
+                {
+                    GUI.Box(new Rect(x, y + 2, capW, rowH - 6), k[0], keyCap);
+                    GUI.Label(new Rect(x + capW + 10, y, colW - capW - 10, rowH - 2), k[1], keyTxt);
+                    y += rowH;
+                }
+            }
+            var padSt = new GUIStyle(small) { fontSize = Mathf.Max(13, fs - 3), wordWrap = true };
+            padSt.normal.textColor = new Color(0.85f, 0.88f, 0.92f);
+            GUI.Label(new Rect(r.x + pad, r.yMax - fs * 2.6f, r.width - 2 * pad, fs * 2.4f),
+                "Mando: gatillo derecho acelerar · gatillo izquierdo frenar · stick girar · A freno de mano · Y recolocar · X cámara · LB mirar atrás · Start pausa · cruceta ↑ zoom, ↓ flechas, ← suelo", padSt);
         }
 
         /// <summary>Suelo: los colores de siempre o la ortofoto real de b5m (también con la tecla O en el juego).</summary>
@@ -405,8 +490,9 @@ namespace HernaniRacing
             if (state.CircuitOk)
             {
                 var c = state.circuit;
+                string by = string.IsNullOrEmpty(state.creator) ? "" : "  ·  de " + state.creator;
                 GUI.Label(new Rect(r.x + 18, ty + 30, r.width - 36, 46),
-                    (c.length / 1000f).ToString("F2") + " km/vuelta · +" + c.elevationGain.ToString("F0") + " m de desnivel\n" + state.CircuitZones(), small);
+                    (c.LapLength / 1000f).ToString("F2") + (c.closed ? " km/vuelta" : " km de A a B") + " · +" + c.elevationGain.ToString("F0") + " m" + by + "\n" + state.CircuitZones(), small);
             }
             GUI.enabled = canChange;
             if (GUI.Button(new Rect(r.x + 18, r.yMax - 64, r.width - 36, 48), canChange ? "Cambiar circuito" : "Lo elige el líder", midBtn)) Go(MenuScreen.Circuit);
@@ -429,7 +515,7 @@ namespace HernaniRacing
             if (state.CircuitOk)
             {
                 GUILayout.Space(8);
-                GUILayout.Label("Total: " + (state.circuit.length * s.laps / 1000f).ToString("F1") + " km con " + (s.opponents + (InRoom ? net.Room.players.Count : 1)) + " coches", txt);
+                GUILayout.Label("Total: " + (state.circuit.LapLength * (state.circuit.closed ? s.laps : 1) / 1000f).ToString("F1") + " km con " + (s.opponents + (InRoom ? net.Room.players.Count : 1)) + " coches", txt);
             }
             if (locked) GUILayout.Label("En la sala, la carrera la prepara el líder.", small);
             GUILayout.EndArea();
@@ -444,9 +530,14 @@ namespace HernaniRacing
             GUI.enabled = prev && !locked;
             GUILayout.BeginHorizontal();
             GUILayout.Label("Vueltas", label, GUILayout.Width(130));
-            if (GUILayout.Button("−", btn, GUILayout.Width(44), GUILayout.Height(34))) s.laps = Mathf.Max(1, s.laps - 1);
-            GUILayout.Label(s.laps.ToString(), new GUIStyle(label) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold, fontSize = 22 }, GUILayout.Width(50), GUILayout.Height(34));
-            if (GUILayout.Button("+", btn, GUILayout.Width(44), GUILayout.Height(34))) s.laps = Mathf.Min(20, s.laps + 1);
+            if (state.CircuitOk && !state.circuit.closed)
+                GUILayout.Label("1 (de A a B)", new GUIStyle(label) { fontStyle = FontStyle.Bold }, GUILayout.Height(34));
+            else
+            {
+                if (GUILayout.Button("−", btn, GUILayout.Width(44), GUILayout.Height(34))) s.laps = Mathf.Max(1, s.laps - 1);
+                GUILayout.Label(s.laps.ToString(), new GUIStyle(label) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold, fontSize = 22 }, GUILayout.Width(50), GUILayout.Height(34));
+                if (GUILayout.Button("+", btn, GUILayout.Width(44), GUILayout.Height(34))) s.laps = Mathf.Min(20, s.laps + 1);
+            }
             GUILayout.EndHorizontal();
             GUILayout.BeginHorizontal();
             GUILayout.Label("Rivales IA", label, GUILayout.Width(130));

@@ -26,6 +26,11 @@ namespace HernaniRacing.Server
         public int webPort = NetProto.DefaultWebPort;
         /// <summary>Carpeta con el build WebGL de Unity (index.html, Build/, TemplateData/).</summary>
         public string webRoot = "/srv/hernani-web";
+        /// <summary>Fichero de los circuitos y rankings ("" = /var/lib/hernani-server/circuits.json con el servicio,
+        /// o circuits.json junto a server.json).</summary>
+        public string dataFile = "";
+        public int maxCircuits = 500;
+        public int maxCircuitsPerPlayer = 40;
     }
 
     class Player
@@ -40,6 +45,8 @@ namespace HernaniRacing.Server
         public long joinedSeq;
         public double lastRelay;
         public int relayCount;
+        public int reportedSerial = -1;    // carrera de la que ya ha mandado su resultado
+        public double lastSave;
     }
 
     class Room
@@ -51,6 +58,7 @@ namespace HernaniRacing.Server
         public int gameSerial;
         public RoomSettings settings = new RoomSettings();
         public readonly List<Player> players = new List<Player>();
+        public CircuitEntry raceCircuit;   // circuito guardado de la carrera en marcha (null = sin guardar: no cuenta)
     }
 
     public class ServerCore : INetEventListener
@@ -71,6 +79,7 @@ namespace HernaniRacing.Server
         long seq;
         double nextPingBroadcast;
         public Action<string> Log = Console.WriteLine;
+        CircuitStore store;
 
         public ServerCore(ServerConfig c)
         {
@@ -92,6 +101,7 @@ namespace HernaniRacing.Server
 
         public bool Start()
         {
+            store = new CircuitStore(string.IsNullOrEmpty(cfg.dataFile) ? "circuits.json" : cfg.dataFile, Log);
             bool ok = net.Start(IPAddress.Any, IPAddress.IPv6Any, cfg.port);
             if (ok) Log($"[{Stamp()}] Escuchando en UDP {cfg.port} · contraseña {(string.IsNullOrEmpty(cfg.password) ? "NO (cualquiera puede entrar)" : "sí")} · máx. {cfg.maxPlayers} jugadores");
             else Log($"[{Stamp()}] ERROR: no puedo abrir el puerto UDP {cfg.port} (¿ya hay otro servidor?)");
@@ -312,6 +322,10 @@ namespace HernaniRacing.Server
                         if (p.room != null && p.room.leader == p && p.room.phase != RoomPhase.Lobby) EndGame(p.room, "el líder ha vuelto a la sala");
                         break;
                     case Msg.Relay: Relay(p, r); break;
+                    case Msg.ListCircuits: SendCircuitList(p); break;
+                    case Msg.SaveCircuit: SaveCircuit(p, r); break;
+                    case Msg.RaceResult: RaceResult(p, r); break;
+                    case Msg.DeleteCircuit: DeleteCircuit(p, r.GetString(600)); break;
                 }
             }
             catch (Exception e)
@@ -324,6 +338,113 @@ namespace HernaniRacing.Server
         {
             w.Reset(); w.Put((byte)Msg.Error); w.Put(text);
             p.conn.Send(w, NetProto.ChReliable, true);
+        }
+
+        void SendInfo(Player p, string text)
+        {
+            w.Reset(); w.Put((byte)Msg.Info); w.Put(text);
+            p.conn.Send(w, NetProto.ChReliable, true);
+        }
+
+        // ------------------------------------------------------------------ circuitos y rankings
+        void SendCircuitList(Player p)
+        {
+            var list = store.For(p.dataSig, cfg.maxCircuits);
+            w.Reset(); w.Put((byte)Msg.CircuitList);
+            w.Put((ushort)list.Count);
+            foreach (var c in list) c.Write(w);
+            p.conn.Send(w, NetProto.ChReliable, true);
+        }
+
+        void SaveCircuit(Player p, NetDataReader r)
+        {
+            string name = NetProto.CleanName(r.GetString(64), NetProto.MaxCircuitName);
+            int[] nodes = r.GetIntArray();
+            bool closed = r.GetBool();
+            float length = r.GetFloat();
+            if (Now - p.lastSave < 2.0) { SendError(p, "Espera un momento antes de guardar otro circuito."); return; }
+            p.lastSave = Now;
+            if (name.Length == 0) { SendError(p, "Ponle un nombre al circuito."); return; }
+            if (nodes == null || nodes.Length < 2 || nodes.Length > NetProto.MaxCircuitNodes || nodes.Any(n => n < 0) || nodes.Distinct().Count() != nodes.Length)
+            { SendError(p, "Ese circuito no es válido."); return; }
+            if (float.IsNaN(length) || length < 100f || length > 200000f) { SendError(p, "Ese circuito no es válido."); return; }
+            if (name.Equals(NetProto.PresetCreator, StringComparison.OrdinalIgnoreCase)) { SendError(p, "Elige otro nombre."); return; }
+            string key = NetProto.CircuitKey(nodes, closed);
+            var same = store.Find(key, p.dataSig);
+            if (same != null) { SendError(p, "Ese circuito ya está en el servidor: «" + same.name + "» de " + same.creator + "."); return; }
+            if (store.FindName(name, p.dataSig) != null) { SendError(p, "Ya hay un circuito que se llama «" + name + "». Elige otro nombre."); return; }
+            if (store.All.Count >= cfg.maxCircuits) { SendError(p, "El servidor ya tiene demasiados circuitos (" + cfg.maxCircuits + ")."); return; }
+            if (store.All.Count(c => c.creator == p.profile.nick && !c.preset) >= cfg.maxCircuitsPerPlayer)
+            { SendError(p, "Ya has guardado " + cfg.maxCircuitsPerPlayer + " circuitos: borra alguno antes."); return; }
+            var e = new CircuitEntry
+            {
+                key = key, name = name, creator = p.profile.nick, nodes = nodes, closed = closed, preset = false, length = length,
+                created = DateTimeOffset.UtcNow.ToUnixTimeSeconds(), dataSig = p.dataSig ?? ""
+            };
+            store.All.Add(e);
+            store.Save();
+            Log($"[{Stamp()}] circuito «{name}» guardado por {p.profile.nick} ({nodes.Length} cruces, {(closed ? "cerrado" : "de A a B")}, {length:F0} m)");
+            SendInfo(p, "Circuito «" + name + "» guardado en el servidor.");
+            foreach (var x in players.Values) SendCircuitList(x);
+        }
+
+        void DeleteCircuit(Player p, string key)
+        {
+            var c = store.Find(key, p.dataSig);
+            if (c == null) { SendError(p, "Ese circuito ya no está en el servidor."); return; }
+            if (c.preset || c.creator != p.profile.nick) { SendError(p, "Sólo puede borrarlo quien lo creó (" + c.creator + ")."); return; }
+            store.All.Remove(c);
+            store.Save();
+            Log($"[{Stamp()}] circuito «{c.name}» borrado por {p.profile.nick}");
+            SendInfo(p, "Circuito «" + c.name + "» borrado.");
+            foreach (var x in players.Values) SendCircuitList(x);
+        }
+
+        /// <summary>Un jugador ha cruzado la meta: su mejor vuelta entra en el ranking del circuito (la IA no cuenta).</summary>
+        void RaceResult(Player p, NetDataReader r)
+        {
+            float best = r.GetFloat(), total = r.GetFloat();
+            string car = NetProto.CleanName(r.GetString(32), 32);
+            r.GetByte();
+            var room = p.room;
+            if (room == null || room.phase != RoomPhase.Race || !p.inGame) return;
+            if (p.reportedSerial == room.gameSerial) return;
+            p.reportedSerial = room.gameSerial;
+            var c = room.raceCircuit;
+            if (c == null) return;                     // circuito sin guardar: no hay ranking
+            float min = Math.Max(5f, c.length / 95f);  // nadie va a más de ~340 km/h de media
+            if (float.IsNaN(best) || best < min || best > 3600f) return;
+            int pos = store.AddLap(c, p.profile.nick, car, best);
+            if (pos <= 0) return;
+            store.Save();
+            Log($"[{Stamp()}] ranking «{c.name}»: {p.profile.nick} {NetProto.FormatLap(best)} ({pos}º)");
+            SendInfo(p, pos == 1 ? "¡RÉCORD de «" + c.name + "»! " + NetProto.FormatLap(best)
+                                 : "Tu vuelta " + NetProto.FormatLap(best) + " es la " + pos + "ª mejor de «" + c.name + "».");
+            foreach (var x in players.Values) if (x.room == null || x.room.phase == RoomPhase.Lobby) SendCircuitList(x);
+        }
+
+        /// <summary>Al empezar una carrera online: se apunta en el ranking de carreras del circuito.</summary>
+        void CountRace(Room room)
+        {
+            var s = room.settings;
+            string key = s.Key;
+            var c = store.Find(key, room.dataSig);
+            if (c == null && s.preset && s.nodes.Length >= 2)
+            {
+                // los predefinidos del juego entran solos en la lista la primera vez que se corren
+                c = new CircuitEntry
+                {
+                    key = key, name = NetProto.CleanName(s.circuitName, NetProto.MaxCircuitName), creator = NetProto.PresetCreator,
+                    nodes = (int[])s.nodes.Clone(), closed = s.closed, preset = true, created = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                    dataSig = room.dataSig ?? ""
+                };
+                if (c.name.Length == 0) c.name = "Circuito predefinido";
+                store.All.Add(c);
+            }
+            room.raceCircuit = c;
+            if (c == null) return;
+            c.races++;
+            store.Save();
         }
 
         void SendRoomList(Player p)
@@ -430,7 +551,7 @@ namespace HernaniRacing.Server
             var room = p.room;
             if (room == null || room.leader != p) return;
             if (room.phase != RoomPhase.Lobby) { SendError(p, "Ya hay una partida en marcha."); return; }
-            if (mode == GameMode.Race && (room.settings.nodes == null || room.settings.nodes.Length < 2)) { SendError(p, "Elige primero el circuito (4 cruces)."); return; }
+            if (mode == GameMode.Race && (room.settings.nodes == null || room.settings.nodes.Length < 2)) { SendError(p, "Elige primero el circuito (al menos 2 cruces)."); return; }
             int humans = room.players.Count;
             if (mode == GameMode.Race && humans + room.settings.opponents > NetProto.MaxCarsPerRace)
                 room.settings.opponents = (byte)Math.Max(0, NetProto.MaxCarsPerRace - humans);
@@ -438,6 +559,8 @@ namespace HernaniRacing.Server
             room.startAt = Now + (mode == GameMode.Race ? 7.0 : 0.0);   // 7 s para cargar y la cuenta atrás
             room.gameSerial++;
             foreach (var x in room.players) x.inGame = true;
+            room.raceCircuit = null;
+            if (mode == GameMode.Race) CountRace(room);
             Log($"[{Stamp()}] {room.code}: empieza {(mode == GameMode.Race ? "CARRERA" : "PASEO LIBRE")} con {humans} jugadores");
             BroadcastRoom(room);
             BroadcastRoomList();

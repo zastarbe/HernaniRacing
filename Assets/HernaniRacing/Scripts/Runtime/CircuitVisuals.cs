@@ -12,7 +12,13 @@ namespace HernaniRacing
         public static GameObject Build(Circuit c)
         {
             var root = new GameObject("Circuito");
-            BuildStart(c, root.transform);
+            if (c.closed) BuildStart(c, root.transform, 0, "HERNANI GP", new Color(0.75f, 0.08f, 0.1f));
+            else
+            {
+                // de A a B: pórtico de salida (verde) y de meta (rojo)
+                BuildStart(c, root.transform, c.startIdx, "SALIDA", new Color(0.1f, 0.55f, 0.2f));
+                BuildStart(c, root.transform, c.finishIdx, "META", new Color(0.75f, 0.08f, 0.1f));
+            }
             return root;
         }
 
@@ -25,12 +31,12 @@ namespace HernaniRacing
             return p.y;
         }
 
-        static void BuildStart(Circuit c, Transform parent)
+        static void BuildStart(Circuit c, Transform parent, int at, string text, Color beamColor)
         {
-            Vector3 p = c.raw[0];
-            Vector3 d = c.raw[1] - c.raw[c.raw.Length - 1]; d.y = 0; d.Normalize();
+            Vector3 p = c.raw[c.Wrap(at)];
+            Vector3 d = c.raw[c.Wrap(at + 1)] - c.raw[c.Wrap(at - 1)]; d.y = 0; d.Normalize();
             p.y = SurfaceY(p);
-            float hw = c.width[0] * 0.5f;
+            float hw = c.width[c.Wrap(at)] * 0.5f;
             var mb = new MeshBuilder(1);
             Vector3 rgt = new Vector3(d.z, 0, -d.x);
             const int cols = 9;
@@ -51,10 +57,10 @@ namespace HernaniRacing
 
             // pórtico
             Vector3 right = new Vector3(d.z, 0, -d.x);
-            var gantry = new GameObject("Portico salida");
+            var gantry = new GameObject("Portico " + text);
             gantry.transform.SetParent(parent, false);
             var dark = Mat.Color(new Color(0.15f, 0.15f, 0.17f), 0.3f);
-            var red = Mat.Color(new Color(0.75f, 0.08f, 0.1f), 0.4f);
+            var red = Mat.Color(beamColor, 0.4f);
             float off = hw + 1.0f;
             for (int s = -1; s <= 1; s += 2)
             {
@@ -84,7 +90,7 @@ namespace HernaniRacing
                     tgo.transform.position = p + Vector3.up * 5.6f + d * (side * 0.22f);
                     tgo.transform.rotation = Quaternion.LookRotation(side < 0 ? d : -d);
                     var tm = tgo.AddComponent<TextMesh>();
-                    tm.text = "HERNANI GP";
+                    tm.text = text;
                     tm.font = font;
                     tm.fontSize = 64;
                     tm.characterSize = 0.06f;
