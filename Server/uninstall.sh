@@ -47,6 +47,18 @@ systemctl reset-failed $SVC 2>/dev/null || true
 rm -rf "$APP_DIR" "$CFG_DIR" "$WEB_DIR" "$DATA_DIR" /var/lib/private/hernani-server
 echo "-> Borrados $APP_DIR, $CFG_DIR, $DATA_DIR (circuitos y rankings) y $WEB_DIR"
 
+# 2b) https (v16): hook de renovación de certbot. El certificado de Let's Encrypt en sí no se toca salvo que digas que sí.
+HOOK=/etc/letsencrypt/renewal-hooks/deploy/hernani-racing.sh
+if [ -f $HOOK ]; then
+  CERTNAME=$(grep -o 'live/[^/"]*' $HOOK | head -1 | cut -d/ -f2)
+  rm -f $HOOK
+  echo "-> Borrado el hook de renovación del certificado ($HOOK)"
+  if [ -n "$CERTNAME" ] && command -v certbot >/dev/null 2>&1 && [ -d /etc/letsencrypt/live/$CERTNAME ] && \
+     ask "¿Borrar también el certificado de Let's Encrypt de $CERTNAME? (di que no si lo usa otra web)"; then
+    certbot delete --non-interactive --cert-name "$CERTNAME" >/dev/null 2>&1 && echo "-> Borrado el certificado de $CERTNAME"
+  fi
+fi
+
 # 3) usuario del sistema
 if id -u hernani >/dev/null 2>&1; then
   userdel hernani 2>/dev/null || true
@@ -56,7 +68,7 @@ getent group hernani >/dev/null 2>&1 && groupdel hernani 2>/dev/null || true
 
 # 4) cortafuegos de Ubuntu (ufw)
 if command -v ufw >/dev/null 2>&1; then
-  for rule in "$PORT/udp" "$WEBPORT/tcp" "7777/udp" "8080/tcp"; do
+  for rule in "$PORT/udp" "$WEBPORT/tcp" "7777/udp" "8080/tcp" "80/tcp"; do
     n=0
     while [ $n -lt 4 ] && ufw status 2>/dev/null | grep -q "^$rule .*Hernani Racing"; do
       ufw --force delete allow "$rule" >/dev/null 2>&1 || break

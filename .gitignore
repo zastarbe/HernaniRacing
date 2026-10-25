@@ -32,8 +32,7 @@ crashlytics-build.properties
 Thumbs.db
 
 # Pipeline de datos (descargas grandes, se regeneran)
-DataPipeline/cache/*.gpkg
-DataPipeline/cache/*.tif
+DataPipeline/cache/
 __pycache__/
 *.pyc
 .venv/

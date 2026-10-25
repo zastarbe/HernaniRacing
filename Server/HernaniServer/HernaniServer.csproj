@@ -22,4 +22,8 @@
     <Compile Include="../../Assets/HernaniRacing/Scripts/Net/Shared/NetProtocol.cs" Link="Shared/NetProtocol.cs" />
     <Compile Include="../../Assets/HernaniRacing/Plugins/LiteNetLib/**/*.cs" Link="LiteNetLib/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- v16: tabla para trasladar los circuitos guardados con datos de mapa antiguos (ids de cruces) -->
+    <EmbeddedResource Include="circuit_remap.json" LogicalName="circuit_remap.json" />
+  </ItemGroup>
 </Project>

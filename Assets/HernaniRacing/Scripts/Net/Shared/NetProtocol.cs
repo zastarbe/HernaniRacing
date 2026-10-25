@@ -9,7 +9,7 @@ namespace HernaniRacing.Net
     public static class NetProto
     {
         public const string Game = "HernaniRacing";
-        public const int Version = 2;               // súbelo si cambias el formato de los mensajes (v2: circuitos y rankings)
+        public const int Version = 3;               // súbelo si cambias el formato de los mensajes (v2: circuitos y rankings; v3: chat de voz)
         public const int DefaultPort = 7777;
         /// <summary>Puerto TCP de la versión web: página del juego (http) + WebSocket en /ws.</summary>
         public const int DefaultWebPort = 8080;
@@ -25,6 +25,10 @@ namespace HernaniRacing.Net
         // canales de LiteNetLib
         public const byte ChReliable = 0, ChCars = 1, ChTraffic = 2, ChPeds = 3;
         public const int Channels = 4;
+        /// <summary>Voz: no fiable (si se pierde un trozo, el decodificador Opus lo disimula).</summary>
+        public const byte ChVoice = ChPeds;
+        /// <summary>Voz: 16 kHz mono, trozos de 40 ms (640 muestras) a ~16 kbit/s.</summary>
+        public const int VoiceRate = 16000, VoiceFrame = 640, VoiceMaxPacket = 400;
 
         // circuitos del servidor
         public const int MaxCircuitNodes = 64;
@@ -71,9 +75,11 @@ namespace HernaniRacing.Net
         TimeReq = 1, ListRooms = 2, CreateRoom = 3, JoinRoom = 4, LeaveRoom = 5, Profile = 6,
         Settings = 7, Start = 8, EnterGame = 9, LeaveGame = 10, EndGame = 11, Relay = 12,
         ListCircuits = 13, SaveCircuit = 14, RaceResult = 15, DeleteCircuit = 16,
+        Voice = 17,          // v3: trozo de voz (Opus) para toda la sala
         // servidor -> cliente
         Welcome = 101, TimeResp = 102, RoomList = 103, RoomState = 104, RelayFrom = 105, Error = 106, LeftRoom = 107,
-        CircuitList = 108, Info = 109
+        CircuitList = 108, Info = 109,
+        VoiceFrom = 110      // v3: voz de otro jugador de la sala
     }
 
     /// <summary>Qué viaja dentro de un mensaje Relay (el servidor no lo interpreta, sólo lo reenvía).</summary>

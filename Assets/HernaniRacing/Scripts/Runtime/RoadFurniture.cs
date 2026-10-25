@@ -213,6 +213,7 @@ namespace HernaniRacing
         // ------------------------------------------------------------------ marcas longitudinales
         static void EdgeMarkings(World w, RoadGraph g, RoadEdge e, MeshBuilder mb)
         {
+            if (!e.IsRoad) return;      // v16: caminos, bidegorris y vías de tren sin marcas viales
             float s0 = Lanes.Trim(g, e.a), s1 = e.length - Lanes.Trim(g, e.b);
             if (s1 - s0 < 2f || e.width < 5f) return;
             float hw = e.width * 0.5f;

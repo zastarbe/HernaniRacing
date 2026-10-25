@@ -40,6 +40,7 @@ namespace HernaniRacing.Server
                             All.Add(c);
                         }
                     Log("Circuitos: " + All.Count + " en " + path);
+                    if (Migrate() > 0) Save();
                 }
                 else Log("Circuitos: todavía no hay ninguno (se guardarán en " + path + ")");
             }
@@ -52,7 +53,63 @@ namespace HernaniRacing.Server
 
         public string FilePath { get { return path; } }
 
-        static bool SameSig(CircuitEntry c, string sig) { return string.IsNullOrEmpty(sig) || string.IsNullOrEmpty(c.dataSig) || c.dataSig == sig; }
+        // La firma es "fecha de generación|tramos|cruces"; la fecha identifica los datos por sí sola.
+        static string Gen(string sig) { if (string.IsNullOrEmpty(sig)) return ""; int i = sig.IndexOf('|'); return i < 0 ? sig : sig.Substring(0, i); }
+        static bool SameSig(CircuitEntry c, string sig) { return string.IsNullOrEmpty(sig) || string.IsNullOrEmpty(c.dataSig) || Gen(c.dataSig) == Gen(sig); }
+
+        class RemapTable { public string from = ""; public string to = ""; public int[] map = new int[0]; }
+        class RemapFile { public List<RemapTable> tables = new List<RemapTable>(); }
+
+        /// <summary>v16: los circuitos creados con un mapa anterior se pasan a los ids de cruce del mapa nuevo
+        /// (tabla circuit_remap.json incrustada en el servidor). Conserva rankings y carreras.</summary>
+        int Migrate()
+        {
+            RemapFile rf = null;
+            try
+            {
+                using (var st = typeof(CircuitStore).Assembly.GetManifestResourceStream("circuit_remap.json"))
+                    if (st != null) rf = JsonSerializer.Deserialize<RemapFile>(st, Opts);
+            }
+            catch (Exception e) { Log("AVISO: tabla de traslado de circuitos ilegible: " + e.Message); }
+            if (rf == null || rf.tables == null) return 0;
+            int moved = 0, lost = 0;
+            foreach (var t in rf.tables)
+            {
+                if (t == null || t.map == null || string.IsNullOrEmpty(t.from)) continue;
+                foreach (var c in All.Where(x => !string.IsNullOrEmpty(x.dataSig) && Gen(x.dataSig) == t.from).ToList())
+                {
+                    var nn = new int[c.nodes.Length];
+                    bool ok = true;
+                    for (int i = 0; i < nn.Length && ok; i++)
+                    {
+                        int o = c.nodes[i];
+                        ok = o >= 0 && o < t.map.Length && t.map[o] >= 0;
+                        if (ok) nn[i] = t.map[o];
+                    }
+                    if (!ok) { lost++; continue; }
+                    c.nodes = nn;
+                    c.dataSig = t.to + "|";
+                    c.key = NetProto.CircuitKey(c.nodes, c.closed);
+                    var twin = All.FirstOrDefault(x => x != c && x.key == c.key && Gen(x.dataSig) == t.to);
+                    if (twin != null)
+                    {
+                        // ya existía en el mapa nuevo: se juntan carreras y vueltas (la mejor de cada piloto)
+                        twin.races += c.races;
+                        foreach (var l in c.laps)
+                        {
+                            var o = twin.laps.FirstOrDefault(x => string.Equals(x.nick, l.nick, StringComparison.OrdinalIgnoreCase));
+                            if (o == null) twin.laps.Add(l);
+                            else if (l.time < o.time) { twin.laps.Remove(o); twin.laps.Add(l); }
+                        }
+                        twin.laps = twin.laps.OrderBy(x => x.time).Take(NetProto.TopLaps).ToList();
+                        All.Remove(c);
+                    }
+                    moved++;
+                }
+            }
+            if (moved + lost > 0) Log("Circuitos trasladados al mapa nuevo: " + moved + (lost > 0 ? " (sin equivalencia: " + lost + ")" : ""));
+            return moved;
+        }
 
         public CircuitEntry Find(string key, string sig) { return All.FirstOrDefault(c => c.key == key && SameSig(c, sig)); }
 

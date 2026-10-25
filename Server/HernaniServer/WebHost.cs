@@ -1,12 +1,19 @@
 // Servidor web integrado (Kestrel): sirve la versión web del juego (el build WebGL de Unity) y acepta las
 // conexiones WebSocket de los jugadores del navegador en /ws. Así basta con abrir http://IP-del-servidor:8080
 using System;
+using System.Buffers;
+using System.IO.Pipelines;
 using System.Collections.Concurrent;
 using System.IO;
 using System.Net;
 using System.Net.WebSockets;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Connections;
+using Microsoft.AspNetCore.Server.Kestrel.Https;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using HernaniRacing.Net;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -35,14 +42,35 @@ namespace HernaniRacing.Server
             {
                 var b = WebApplication.CreateSlimBuilder();
                 b.Logging.ClearProviders();
-                b.WebHost.UseUrls("http://0.0.0.0:" + cfg.webPort);
-                b.WebHost.ConfigureKestrel(o => { o.Limits.MaxRequestBodySize = 64 * 1024; o.AddServerHeader = false; });
+                // v16: https opcional en el MISMO puerto; lo que llegue por http se redirige a https
+                bool tls = !string.IsNullOrWhiteSpace(cfg.tlsCert) && !string.IsNullOrWhiteSpace(cfg.tlsKey);
+                if (tls)
+                {
+                    certs = new CertCache(cfg.tlsCert.Trim(), cfg.tlsKey.Trim(), Log);
+                    if (certs.Get() == null)
+                    {
+                        Log("AVISO: no puedo leer el certificado (" + cfg.tlsCert + " / " + cfg.tlsKey + "): sigo sólo con http");
+                        tls = false; certs = null;
+                    }
+                }
+                https = tls;
+                b.WebHost.ConfigureKestrel(o =>
+                {
+                    o.Limits.MaxRequestBodySize = 64 * 1024; o.AddServerHeader = false;
+                    o.ListenAnyIP(cfg.webPort, lo =>
+                    {
+                        if (!tls) return;
+                        lo.Protocols = HttpProtocols.Http1;   // WebSocket clásico (Upgrade) en todos los navegadores
+                        lo.Use(next => conn => PlainHttpRedirect(conn, next));
+                        lo.UseHttps(new HttpsConnectionAdapterOptions { ServerCertificateSelector = (c, name) => certs.Get() });
+                    });
+                });
                 app = b.Build();
                 app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(20) });
                 app.Run(Handle);
                 app.StartAsync().GetAwaiter().GetResult();
                 bool hasGame = root != null && File.Exists(Path.Combine(root, "index.html"));
-                Log($"Web: http://0.0.0.0:{cfg.webPort}/  (WebSocket en {NetProto.WebSocketPath}) · " +
+                Log($"Web: {(https ? "https" : "http")}://0.0.0.0:{cfg.webPort}/  (WebSocket en {NetProto.WebSocketPath}{(https ? ", http → https" : "")}) · " +
                     (hasGame ? "juego web en " + root : "AÚN NO hay juego web en " + (root ?? "(sin webRoot)") + " → usa install-web.sh"));
                 return true;
             }
@@ -50,6 +78,105 @@ namespace HernaniRacing.Server
             {
                 Log("ERROR: no puedo abrir el puerto web TCP " + cfg.webPort + ": " + e.Message);
                 return false;
+            }
+        }
+
+        CertCache certs;
+        bool https;
+
+        /// <summary>
+        /// Primer byte de la conexión: 0x16 = saludo TLS (https) → sigue; cualquier otra cosa es http normal →
+        /// respuesta 301 a la misma dirección con https (mismo puerto) y se cierra.
+        /// </summary>
+        async Task PlainHttpRedirect(ConnectionContext conn, ConnectionDelegate next)
+        {
+            var input = conn.Transport.Input;
+            ReadResult r;
+            try { r = await input.ReadAsync(); } catch (Exception) { return; }
+            var buf = r.Buffer;
+            if (buf.Length == 0) { input.AdvanceTo(buf.Start); return; }
+            if (buf.FirstSpan[0] == 0x16) { input.AdvanceTo(buf.Start); await next(conn); return; }
+            // http: leer la cabecera (máx. 8 KB / 5 s) para sacar la ruta y el Host
+            using var cts = new CancellationTokenSource(5000);
+            string head = "";
+            try
+            {
+                while (true)
+                {
+                    head = Encoding.ASCII.GetString(buf.Length > 8192 ? buf.Slice(0, 8192).ToArray() : buf.ToArray());
+                    if (head.Contains("\r\n\r\n") || buf.Length >= 8192 || r.IsCompleted) break;
+                    input.AdvanceTo(buf.Start, buf.End);
+                    r = await input.ReadAsync(cts.Token);
+                    buf = r.Buffer;
+                }
+            }
+            catch (Exception) { return; }
+            string path = "/", host = null;
+            var lines = head.Split("\r\n");
+            if (lines.Length > 0)
+            {
+                var parts = lines[0].Split(' ');
+                if (parts.Length >= 2 && parts[1].StartsWith("/")) path = parts[1];
+            }
+            foreach (var l in lines)
+                if (l.StartsWith("Host:", StringComparison.OrdinalIgnoreCase)) { host = l.Substring(5).Trim(); break; }
+            if (string.IsNullOrEmpty(host) || host.IndexOfAny(new[] { ' ', '/', '\\', '\r', '\n' }) >= 0)
+                host = (conn.LocalEndPoint as IPEndPoint)?.Address + ":" + cfg.webPort;
+            // por IP (http://194.x.x.x:8080) el certificado no valdría: se manda al nombre del certificado
+            {
+                string hn = host, hp = "";
+                int ci = host.LastIndexOf(':');
+                if (ci > 0 && host.IndexOf(']') < ci) { hn = host.Substring(0, ci); hp = host.Substring(ci); }
+                string cn = certs?.Name;
+                if (!string.IsNullOrEmpty(cn) && !cn.StartsWith("*") &&
+                    (IPAddress.TryParse(hn.Trim('[', ']'), out _) || hn.Equals("localhost", StringComparison.OrdinalIgnoreCase)))
+                    host = cn + (hp.Length > 0 ? hp : ":" + cfg.webPort);
+            }
+            string loc = "https://" + host + path;
+            string body = "<a href=\"" + WebUtility.HtmlEncode(loc) + "\">" + WebUtility.HtmlEncode(loc) + "</a>";
+            string resp = "HTTP/1.1 301 Moved Permanently\r\nLocation: " + loc + "\r\nContent-Type: text/html; charset=utf-8\r\n" +
+                          "Content-Length: " + Encoding.UTF8.GetByteCount(body) + "\r\nConnection: close\r\n\r\n" + body;
+            try
+            {
+                input.AdvanceTo(buf.End);
+                await conn.Transport.Output.WriteAsync(Encoding.UTF8.GetBytes(resp));
+                await conn.Transport.Output.FlushAsync();
+            }
+            catch (Exception) { }
+        }
+
+        /// <summary>Certificado PEM; se vuelve a leer solo cuando cambia el fichero (renovación de Let's Encrypt).</summary>
+        sealed class CertCache
+        {
+            readonly string certPath, keyPath;
+            readonly Action<string> log;
+            readonly object sync = new object();
+            X509Certificate2 cert;
+            DateTime stamp, nextCheck;
+            public string Name;   // nombre DNS principal del certificado
+            public CertCache(string c, string k, Action<string> l) { certPath = c; keyPath = k; log = l; }
+            public X509Certificate2 Get()
+            {
+                lock (sync)
+                {
+                    if (cert != null && DateTime.UtcNow < nextCheck) return cert;
+                    nextCheck = DateTime.UtcNow.AddSeconds(60);
+                    try
+                    {
+                        var t = File.GetLastWriteTimeUtc(certPath);
+                        var tk = File.GetLastWriteTimeUtc(keyPath);
+                        if (tk > t) t = tk;
+                        if (cert != null && t == stamp) return cert;
+                        using var pem = X509Certificate2.CreateFromPemFile(certPath, keyPath);
+                        // (exportar y volver a importar: en Windows la clave PEM es "efímera" y TLS no la acepta)
+                        var c = new X509Certificate2(pem.Export(X509ContentType.Pkcs12));
+                        cert = c; stamp = t;
+                        Name = c.GetNameInfo(X509NameType.DnsName, false);
+                        log($"Certificado https: {c.GetNameInfo(X509NameType.DnsName, false)} (caduca {c.NotAfter:yyyy-MM-dd})");
+                    }
+                    catch (Exception e) { log("ERROR leyendo el certificado https: " + e.Message); }
+                    return cert;
+                }
             }
         }
 
@@ -62,18 +189,43 @@ namespace HernaniRacing.Server
         {
             if (ctx.Request.Path.Equals(NetProto.WebSocketPath, StringComparison.OrdinalIgnoreCase))
             {
+                bool own = SameOrigin(ctx);
+                // registro de diagnóstico: ayuda a ver proxys que cambian Host/Origin o no dejan pasar WebSocket
+                Log($"Web: petición /ws de {ctx.Connection.RemoteIpAddress} · Host={ctx.Request.Host.Value} · Origin={ctx.Request.Headers["Origin"]} · " +
+                    $"WebSocket={(ctx.WebSockets.IsWebSocketRequest ? "sí" : "no")} · misma página={(own ? "sí" : "no")}");
                 if (!ctx.WebSockets.IsWebSocketRequest) { ctx.Response.StatusCode = 400; await ctx.Response.WriteAsync("Solo WebSocket"); return; }
                 using (var ws = await ctx.WebSockets.AcceptWebSocketAsync())
-                    await RunSocket(ws, ctx.Connection.RemoteIpAddress?.ToString() ?? "?");
+                    await RunSocket(ws, ctx.Connection.RemoteIpAddress?.ToString() ?? "?", own);
                 return;
             }
             if (ctx.Request.Method != "GET" && ctx.Request.Method != "HEAD") { ctx.Response.StatusCode = 405; return; }
             await ServeFile(ctx);
         }
 
-        async Task RunSocket(WebSocket ws, string remote)
+        /// <summary>v16: ¿la conexión viene de la página del juego servida por este mismo servidor? (Origin == Host)</summary>
+        static bool SameOrigin(HttpContext ctx)
         {
-            var conn = new WsConn(ws, remote, now());
+            string origin = ctx.Request.Headers["Origin"].ToString();
+            string host = ctx.Request.Host.Value ?? "";
+            if (string.IsNullOrEmpty(origin) || string.IsNullOrEmpty(host)) return false;
+            int i = origin.IndexOf("://", StringComparison.Ordinal);
+            if (i < 0) return false;
+            string auth = origin.Substring(i + 3).TrimEnd('/');
+            string scheme = origin.Substring(0, i).ToLowerInvariant();
+            // puerto por defecto: el navegador no lo pone en Origin
+            string Norm(string a, string sch)
+            {
+                a = a.ToLowerInvariant();
+                if (sch == "https" && a.EndsWith(":443")) a = a.Substring(0, a.Length - 4);
+                if (sch == "http" && a.EndsWith(":80")) a = a.Substring(0, a.Length - 3);
+                return a;
+            }
+            return Norm(auth, scheme) == Norm(host, ctx.Request.IsHttps ? "https" : "http");
+        }
+
+        async Task RunSocket(WebSocket ws, string remote, bool ownPage)
+        {
+            var conn = new WsConn(ws, remote, now()) { ownPage = ownPage };
             Interlocked.Increment(ref live);
             var sender = Task.Run(conn.SendLoop);
             var buf = new byte[8192];

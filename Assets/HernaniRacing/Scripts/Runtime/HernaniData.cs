@@ -74,6 +74,8 @@ namespace HernaniRacing
         public string n;    // nombre del edificio (si existe)
         public string a;    // dirección postal
         public int y;       // año de construcción (0 = desconocido)
+        public string pn;   // v16: texto de la placa con el nombre de la casa (en euskera, como las placas reales)
+        public float[] ps;  // v16: placa en la fachada principal: x, z, y (centro), nx, nz (normal hacia fuera), ancho máx.
     }
 
     [Serializable] public class BuildingsData { public BuildingData[] buildings; }
@@ -89,6 +91,15 @@ namespace HernaniRacing
     [Serializable] public class LandmarkData { public string name, type; public float x, y, z; }
     [Serializable] public class RiverData { public string name; public float width; public float[] p; }
 
+    /// <summary>v16: cima con nombre (cartel de 5 m).</summary>
+    [Serializable] public class PeakData { public string name; public float x, y, z; }
+    /// <summary>v16: estación o apeadero de tren (OSM).</summary>
+    [Serializable] public class StationData { public string name; public float x, z; }
+    /// <summary>v16: término municipal (level 8) o barrio (9/10): anillos concatenados (r = nº de vértices de cada uno).</summary>
+    [Serializable] public class AreaData { public string name, prov; public int level; public int[] r; public float[] p; }
+    /// <summary>v16: camino o bidegorri sin conexión con la red (sólo se dibuja). t: "Camino" / "Bidegorri".</summary>
+    [Serializable] public class LoosePathData { public string t; public float w; public float[] p; }
+
     [Serializable]
     public class SceneryData
     {
@@ -96,6 +107,10 @@ namespace HernaniRacing
         public LandmarkData[] landmarks;
         public RiverData[] rivers;
         public float[] trees;   // x,z,y,escala,tipo ...
+        public PeakData[] peaks;
+        public StationData[] stations;
+        public AreaData[] areas;
+        public LoosePathData[] loose;
     }
 
     public class HernaniDataSet

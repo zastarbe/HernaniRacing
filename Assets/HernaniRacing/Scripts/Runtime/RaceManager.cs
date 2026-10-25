@@ -101,6 +101,8 @@ namespace HernaniRacing
         // ---- online
         bool online;
         NetSession net;
+        Toponymy topo; World topoWorld;
+        readonly System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<Vector3, Vector3>> trainHeads = new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<Vector3, Vector3>>();
         NetWorldSync sync;
         double netStartAt;
         string aiCarId;
@@ -713,9 +715,11 @@ namespace HernaniRacing
             {
                 float dd;
                 int e = world.graph.NearestEdge(pp, 40f, out dd);
-                street = e >= 0 ? world.graph.edges[e].name : "Fuera de la red viaria";
+                if (e < 0) e = world.graph.NearestEdge(pp, 40f, out dd, Toponymy.AllKinds);
+                street = e >= 0 ? Toponymy.EdgeLabel(world.graph.edges[e]) : "Fuera de la red viaria";
             }
-            var zone = world.ZoneAt(pp);
+            if (topo == null || topoWorld != world) { topo = new Toponymy(world); topoWorld = world; }
+            var place = topo.At(pp, -1);
             int i0 = circuit.Wrap(player.idx - 5), i1 = circuit.Wrap(player.idx + 5);
             Vector3 a = circuit.raw[i0], b = circuit.raw[i1];
             float hd = new Vector2(b.x - a.x, b.z - a.z).magnitude;
@@ -725,7 +729,7 @@ namespace HernaniRacing
             var cst = new GUIStyle(mid) { alignment = TextAnchor.MiddleCenter };
             GUI.Label(new Rect(W / 2 - gw / 2, 24, gw, 34), street, cst);
             var cs2 = new GUIStyle(label) { alignment = TextAnchor.MiddleCenter };
-            GUI.Label(new Rect(W / 2 - gw / 2, 56, gw, 26), (zone != null ? zone.name : "Hernani") + "  ·  Hernani (Gipuzkoa)", cs2);
+            GUI.Label(new Rect(W / 2 - gw / 2, 56, gw, 26), place.Line2() + (string.IsNullOrEmpty(place.monte) || place.monteDist > 700f ? "" : "  ·  Monte " + place.monte), cs2);
             var utm = world.data.ToUTM(pp);
             var cs3 = new GUIStyle(small) { alignment = TextAnchor.MiddleCenter };
             GUI.Label(new Rect(W / 2 - gw / 2, 82, gw, 24),
@@ -770,10 +774,15 @@ namespace HernaniRacing
                     float ts = MapView.MarkerSize(span, 9, 3);
                     foreach (var tc in traffic.cars) if (tc != null) map.Marker(tc.transform.position, tc.transform.forward, new Color(0.75f, 0.75f, 0.75f), false, ts);
                 }
+                if (world.trains != null)
+                {
+                    world.trains.Heads(trainHeads);       // v16: trenes en el plano (morado)
+                    foreach (var th in trainHeads) map.Marker(th.Key, th.Value, new Color(0.7f, 0.25f, 0.9f), false, MapView.MarkerSize(span, 16, 7));
+                }
                 foreach (var r in racers)
                     if (!r.isPlayer && !r.gone) map.Marker(r.car.transform.position, r.car.transform.forward, r.color, false, MapView.MarkerSize(span, 14, 9));
                 map.Marker(pp2, player.car.transform.forward, player.color, true, MapView.MarkerSize(span, 26, 18));
-                GUI.Label(new Rect(mr.x, mr.yMax + 4, ms, 22), (mapZoom > 0 ? "Zoom " + MapView.ZoomLabel(span) : (circuit.closed ? "Circuito: " : "Recorrido: ") + LapLen.ToString("F0") + " m · desnivel +" + circuit.elevationGain.ToString("F0") + " m") + "  ·  N zoom · M ocultar", small);
+                GUI.Label(new Rect(mr.x, mr.yMax + 4, ms, 22), (mapZoom > 0 ? "Zoom " + MapView.ZoomLabel(span) : (circuit.closed ? "Circuito: " : "Recorrido: ") + LapLen.ToString("F0") + " m · desnivel +" + circuit.elevationGain.ToString("F0") + " m") + "  ·  N zoom · Tab ocultar", small);
             }
             if (chase != null && chase.RearView)
             {
@@ -808,7 +817,7 @@ namespace HernaniRacing
                 }
             }
             PenaltyHud.Draw(W, H, player.car);
-            GUI.Label(new Rect(20, H - 34, 1500, 26), "W/S acelerar/frenar · A/D girar · Espacio freno de mano · R recolocar · C cámara · B mirar atrás · M mapa · N zoom mapa · F flechas · O suelo · Esc pausa", small);
+            GUI.Label(new Rect(20, H - 34, 1500, 26), "W/S acelerar/frenar · A/D girar · Espacio freno de mano · R recolocar · C cámara · B mirar atrás · Tab mapa · N zoom mapa · F flechas · O suelo" + (online ? " · M micrófono" : "") + " · Esc pausa", small);
 
             if (paused) PauseMenu(W, H);
             else if (state == State.Finished) Results(W, H);

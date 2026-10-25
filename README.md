@@ -12,6 +12,54 @@ laterales quedan abiertas y la calzada va pegada al terreno real.
 También hay un modo **Paseo libre**: conduces por todo Hernani sin carrera, con tráfico y peatones que respetan
 las señales.
 
+## Novedades (versión 16): caminos, bidegorris, tren, nombres en el mapa, web automática y chat de voz
+> ⚠ **Hay que actualizar el servidor y todos los juegos** (PC y web). Los mensajes online cambian (protocolo v3, por el chat de voz):
+> un juego v15 no entra en un servidor v16, ni al revés. Servidor: `cd ~/HernaniRacing && git pull && cd Server && sudo ./install.sh`.
+> Después, rehaz los builds de PC y web (1.3 y 1.5).
+> * **Los circuitos guardados en el servidor y sus rankings pasan solos a la v16** (también los de la v14, que en la v15 se habían
+>   quedado ocultos). Al arrancar, el servidor v16 traduce los cruces al mapa nuevo y lo apunta en el registro:
+>   *«Circuitos trasladados al mapa nuevo: N»*. Las vueltas rápidas y las carreras corridas se conservan.
+> * **Cambia una tecla:** el mapa grande pasa de la **M** al **Tabulador**; la **M** ahora abre y cierra el micrófono.
+
+* **Caminos de monte (marrón).** Entran todos los caminos conocidos que no son carretera: pistas, sendas, GR/PR y caminos de
+  caseríos de b5m y de OpenStreetMap (unos **606 km**, más 366 tramos sueltos que no se conectan con nada). Se ven como una
+  carretera estrecha de **tierra marrón** y salen en el mapa y el minimapa.
+  * Por ellos sólo van **peatones, una décima parte** de los de la ciudad, y de vez en cuando un **Land Rover** viejo (como mucho 3 a la vez).
+  * Se puede conducir por ellos con cualquier coche, pero **los circuitos y el tráfico normal no los usan**: los 7 circuitos
+    predefinidos siguen igual (misma ruta, misma longitud).
+* **Bidegorris (rojo).** Los carriles bici que no van por una calle: unos **20 km** (la red de Hernani, el de
+  Urnieta – Andoain, el Plazaola…). Son estrechos (2,6 m) y **rojos**. Sólo peatones, también una décima parte.
+* **Tren.** Las **vías** de la línea Irun – Brinkola de Cercanías (19 km, con sus puentes y el túnel) y las estaciones de
+  **Hernani, Hernani‑Centro, Urnieta y Errekalde**, con andenes.
+  * Hay más o menos **un tren cada 4 km** de vía, a velocidad de tren (hasta 80 km/h), que **para 25 s en cada estación**.
+  * Las vías **se pueden recorrer en coche**… pero los trenes son sólidos: mira antes de cruzar.
+  * Online todos ven los mismos trenes en el mismo sitio (van con el reloj común del servidor). En el mapa salen en **morado**.
+* **Nombres en el mundo.**
+  * **Montes:** en cada cima con nombre (164, de b5m, IDENA y OSM) hay un **cartel de unos 5 m de alto** con el nombre en
+    **letras de más de 1 m** (Santa Barbara, Adarra, Urdaburu, Onddi…). Se leen desde lejos.
+  * **Casas y edificios:** los que tienen nombre (**1.103**: caseríos, iglesias, frontones, fábricas…) llevan una **placa con el
+    nombre en la fachada principal**, la que da a la calle o al camino.
+* **¿Dónde estoy?, más preciso.** Arriba en el centro, mientras juegas: **calle** (o *Camino de monte*, *Bidegorri*, *Vía del
+  tren*), **barrio**, **pueblo** y **provincia** (Gipuzkoa o Navarra, con los términos municipales reales de OSM) y, si estás en el
+  monte, **el monte más cercano y a cuánto queda la cima**. En el paseo libre también te dice si es una calle de sentido único,
+  una rotonda, un camino o un bidegorri.
+* **La web juega sola con su servidor.** El juego web se conecta **automáticamente al servidor del que se ha cargado la página**
+  (misma dirección y puerto, `ws://` o `wss://`), sin `server_default.json` ni contraseña: el servidor se fía de su propia página
+  (`webTrustOwnPage`). Así vale también el zip público y, si cambias de IP o de dominio, no hay que rehacer el build web.
+* **Chat de voz** en las salas online (PC y web, también juntos):
+  * **M** abre / cierra tu micrófono (sólo dentro de una sala; al entrar está **cerrado**). Abajo a la izquierda sale
+    *MICRO ABIERTO (M)* con una barra de nivel, y el nombre de quien está hablando.
+  * Te oyen **todos los de la sala, al mismo volumen** (no depende de la distancia), en la sala de espera, en carrera y en el paseo.
+  * Sonido comprimido con **Opus** (unos 16 kbit/s por persona que habla; sólo se envía cuando hablas).
+  * **Mejor con cascos**: con altavoces, el micrófono puede recoger a los demás y se oye eco.
+  * **En la web hace falta https** (los navegadores no dejan usar el micrófono por `http://`). Se activa en el servidor con un
+    comando (ver **5.10**). Desde el PC funciona siempre, con o sin https.
+  * La primera vez, Windows o el navegador preguntan si el juego puede usar el micrófono: pulsa **Permitir**.
+* **https en el servidor, en el mismo puerto 8080.** Con `sudo ./install-https.sh racing.astarbe.com` (ver 5.10) el servidor pide
+  un certificado gratis de Let's Encrypt, lo renueva solo y sirve la web por **https://racing.astarbe.com:8080**. Quien entre por
+  `http://` (con el nombre o con la IP) es redirigido a `https://`.
+* **Mapa de control** (`Docs/mapa_circuitos.png`) con caminos, bidegorris, tren, estaciones y cimas.
+
 ## Novedades (versión 15): todo el término de Hernani, árboles en los builds y coches igualados online
 > ⚠ **Hay que rehacer los builds de PC y web** (1.3 y 1.5) y actualizar el proyecto en todos los PCs. **El servidor no hace falta
 > actualizarlo** (los mensajes online no cambian), pero como el mapa es otro:
@@ -339,12 +387,12 @@ La primera vez Windows puede preguntar:
    `Get-NetFirewallRule | Where-Object DisplayName -like "*HernaniRacing*" | Remove-NetFirewallRule`
 
 ### 1.5 Build web (navegador) paso a paso, Unity 6.3
-1. **Usa el proyecto con tu `server_default.json`** (el zip personal, que lleva `Assets/HernaniRacing/Resources/HernaniNet/server_default.json`).
-   Así la web ya trae tu servidor y los chavales sólo escriben su nombre. Comprueba que también está `Assets/HernaniRacing/link.xml`.
+1. Vale el proyecto **con o sin** `server_default.json`: desde la v16 la web se conecta sola al servidor que le sirve la página
+   y entra sin contraseña. Comprueba que está `Assets/HernaniRacing/link.xml`.
 2. Si no existe la escena: **Hernani Racing → 1. Crear escena de juego**.
 3. **Hernani Racing → 3. Preparar ajustes para el build web.** Deja puesto lo siguiente
    (todo está en *Edit → Project Settings → Player → pestaña Web*):
-   * *Publishing Settings → Compression Format* = **Gzip**. Brotli sólo funciona por https y tu servidor va por http.
+   * *Publishing Settings → Compression Format* = **Gzip** (vale por http y por https; Brotli sólo por https).
    * *Publishing Settings → Decompression Fallback* = desmarcado.
    * *Publishing Settings → Data Caching* = marcado. La segunda vez el juego carga sin volver a descargar.
    * *Publishing Settings → Maximum Memory Size* = **4096**.
@@ -365,8 +413,8 @@ Si un build web falla o se queda en negro: mira la consola del navegador (F12). 
    (en PowerShell de Windows también existe `scp`).
 2. En el servidor: `cd ~/HernaniRacing/Server && sudo ./install-web.sh ~/HernaniWeb.zip`
    (hace falta el servidor instalado, 1.7; el script sustituye la versión web anterior).
-3. Abre **http://IP-del-servidor:8080** en Chrome o Edge (en un PC). La primera carga descarga más de 100 MB
-   (con *Data Caching*, sólo la primera vez).
+3. Abre **http://IP-del-servidor:8080** en Chrome o Edge (en un PC); con https (5.10), **https://tu-dominio:8080**.
+   La primera carga descarga más de 100 MB (con *Data Caching*, sólo la primera vez). La web se conecta sola a ese mismo servidor.
 
 **Quitar sólo la web** (el online de PC sigue funcionando):
 * Borrar el juego web: `sudo rm -rf /srv/hernani-web/*`
@@ -386,6 +434,7 @@ Si un build web falla o se queda en negro: mira la consola del navegador (F12). 
   Abre también 7777 UDP y 8080 TCP en el panel de tu proveedor.
 * **Actualizar** a una versión nueva: `cd ~/HernaniRacing && git pull && cd Server && sudo ./install.sh` (se conserva la configuración).
   Si también cambió la web, repite 1.6.
+* **https** (para el chat de voz en la web): `cd ~/HernaniRacing/Server && sudo ./install-https.sh tu.dominio.com` (ver **5.10**).
 * **Parar / arrancar:** `sudo systemctl stop hernani-server` / `sudo systemctl start hernani-server`.
 * **Desinstalar sin dejar rastro:** ver **5.9**: `cd ~/HernaniRacing/Server && sudo ./uninstall.sh`
   (o `--todo` para no preguntar). Luego borra las reglas de 7777 UDP y 8080 TCP en el panel del proveedor.
@@ -447,7 +496,8 @@ Si un build web falla o se queda en negro: mira la consola del navegador (F12). 
 | Recolocar en el circuito | R | Y / △ |
 | Cambiar cámara | C | X / □ |
 | Pausa | Esc / P | Start |
-| Minimapa grande | M | — |
+| Mapa grande: ver / ocultar | **Tab** (antes M) | — |
+| Micrófono abrir / cerrar (salas online) | **M** | — |
 | Zoom del mapa (circuito, 5 km, 2 km, 1 km, 500 m, 200 m, 100 m) | N | Cruceta ↑ / Back |
 | Vista trasera (mantener) | B | LB / L1 |
 | Mostrar / ocultar flechas del suelo | F | Cruceta ↓ |
@@ -493,6 +543,8 @@ opciones para repetir la carrera o elegir otro circuito.
 | Edificios (huella, altura media y máxima LiDAR, soportales) | b5m · `GFA_DSET_BU` | Edificios extruidos a su altura real |
 | Toponimia | b5m · `GFA_DSET_TOPON` | Barrios (Centro, Karabel, Florida, Elizatxo, Portu, Antziola…), polígonos, rotondas |
 | Hidrografía | b5m · `GFA_DSET_HYD` | Río Urumea y arroyos |
+| Caminos, bidegorris, tren (v16) | b5m · `GFA_DSET_PATHW` (Sendero, Carril-bici, Ferrocarril) + OpenStreetMap (`highway=track/path/footway/cycleway…`, `railway`) | Caminos de monte (marrón), bidegorris (rojo), vías y estaciones |
+| Cimas, nombres de edificios, términos municipales (v16) | b5m · `GFA_DSET_TOPON` (cimas, montes, edificios) + IDENA + OpenStreetMap (`natural=peak`, `building`+`name`, límites administrativos) | Carteles de los montes, placas de las casas, HUD de barrio / pueblo / provincia |
 | Parte de Navarra (Arano, Goizueta) | SITNA / IDENA (WFS `idena.navarra.es/ogc/wfs`): `CARBTA_Lin_RedViaria` (ejes), `CARBTA_Pol_EdiPobCons`, `DIRECC_Pol_Edifaltura`, `HIDROG_Lin_CorrienteNatural`, `TOPONI_Txt_Toponimos`, `DIADMI_Pol_Municipio`. Lo hace `DataPipeline/navarra.py` (se puede quitar con `--no-navarra`) | Calles y carreteras (NA‑4150, NA‑4016) empalmadas con las de b5m en la muga, edificios con altura catastral, regatas y topónimos |
 | Modelo digital del terreno | geoEuskadi · MDT LiDAR (WCS `WCS_KARTOGRAFIA`). Si no responde, se usa el MDT05 del IGN/IDEE | Terreno de Unity: 130 teselas de 1024 m (513² cada una), 2 m/píxel; `heightmap.bytes` comprimido |
 
@@ -523,7 +575,9 @@ opciones para repetir la carrera o elegir otro circuito.
   * **Tubo:** tiene solera, hastiales y bóveda con colisionador, muros de boca de hormigón y luminarias en la clave.
   * **Exterior:** un cajón de hormigón tapa los bordes de los agujeros. Donde hay otra vía al lado (los tubos gemelos
     de la A‑15 en Portu), el cajón se estrecha para no asomar dentro del otro tubo.
-* **Ya incluidos**: los datos procesados están en `Assets/HernaniRacing/Resources/HernaniData/` (unos 34 MB), así que **no hace falta Python** para jugar.
+* **Caminos y bidegorris (v16)** van pegados al terreno, sin tallarlo; donde un bidegorri va junto a una calle de b5m se queda sólo la
+  calle (no se duplican). Las vías del tren sí se modelan en el terreno como una carretera, con los puentes y el túnel de b5m.
+* **Ya incluidos**: los datos procesados están en `Assets/HernaniRacing/Resources/HernaniData/` (unos 60 MB), así que **no hace falta Python** para jugar.
 
 > **URP:** los agujeros del terreno de las bocas necesitan la opción **Terrain Holes** activada en el asset de URP
 > (*Project Settings → Graphics → URP Asset → Rendering → Terrain Holes*). Viene activada por defecto. Con el
@@ -544,11 +598,15 @@ python osm_traffic.py --refresh                    # solo vuelve a descargar y a
 python build_cars.py                               # vuelve a generar los coches (sólo necesita numpy)
 python preview_cars.py furgoneta,suv vista.png     # dibuja los coches en una imagen (necesita pillow)
 python preview_map.py                              # vuelve a dibujar Docs/mapa_circuitos.png
+python build_hernani_data.py --no-extras           # como la v15: sin caminos, bidegorris, tren ni toponimia v16
+python make_circuit_remap.py DATOS_VIEJOS DATOS_NUEVOS ../Server/HernaniServer/circuit_remap.json
+                                                   # tabla para que el servidor pase los circuitos guardados al mapa nuevo
 python build_ortho.py                              # ortofoto b5m 2025 a 0,5 m/px (130 imágenes, ~100 MB; necesita pillow y numpy)
 python build_ortho.py --layer orto2024 --res 1.0   # otro año u otra resolución
 ```
 También desde Unity: **Hernani Racing → 4. Regenerar datos geográficos (Python)**.
-Las descargas se guardan en `DataPipeline/cache/`. El MDT LiDAR de 1 m de geoEuskadi se puede descargar en
+Las descargas se guardan en `DataPipeline/cache/`. **Ojo:** si regeneras los datos, los cruces cambian de número y los circuitos
+guardados en el servidor dejan de verse; con `make_circuit_remap.py` (datos viejos → nuevos) y `sudo ./install.sh` en el servidor se trasladan. El MDT LiDAR de 1 m de geoEuskadi se puede descargar en
 <https://www.geo.euskadi.eus/lidar/DatosDescarga/> (`MDT_LIDAR_2017_ETRS89`).
 
 ---
@@ -588,6 +646,9 @@ Assets/HernaniRacing/
     GameInput.cs            Teclado y mando (Input Manager clásico o nuevo Input System)
     Mat.cs, MeshBuilder.cs  Materiales (Built-in y URP) y generación de mallas
     PenaltyHud.cs           Aviso de sanción por atropello (cuenta atrás 2,000 → 0,000)
+    Toponymy.cs             (v16) ¿Dónde estoy?: calle, barrio, pueblo, provincia y monte más cercano
+    Signage.cs              (v16) Carteles de las cimas y placas con el nombre de las casas
+    Trains.cs               (v16) Trenes con horario común (mismo tren en todos los PCs online) y paradas en las estaciones
   Scripts/Net/
     Shared/NetProtocol.cs   Protocolo de red (compartido con el servidor): mensajes, sala, estados de coche/tráfico/peatón
     Shared/NetClientCore.cs Cliente de red sin Unity: conexión, salas, reloj común, envío/recepción
@@ -597,8 +658,10 @@ Assets/HernaniRacing/
     NetLobbyUI.cs           Pantalla «JUGAR ONLINE»: nombre, opciones de conexión, salas y sala
     NetWorldSync.cs         Sincroniza coches, tráfico y peatones durante la partida
     NetProxies.cs           Coches, tráfico y peatones remotos (interpolación)
+    VoiceChat.cs            (v16) Chat de voz de la sala: micrófono (tecla M), Opus, reproducción por jugador e indicadores
   Plugins/LiteNetLib/       Librería de red UDP (MIT)
-  Plugins/WebGL/            HernaniWebSocket.jslib: WebSocket del navegador para la versión web
+  Plugins/WebGL/            HernaniWebSocket.jslib: WebSocket del navegador; HernaniVoice.jslib: micrófono y audio de la voz (v16)
+  Plugins/Concentus/        Códec Opus en C# para el chat de voz (BSD)
   Scripts/Editor/
     HernaniRacingMenu.cs    Menú «Hernani Racing» (escena, shaders, ajustes del build web, datos)
     HernaniOrthoImporter.cs Importación de la ortofoto (crunch, mipmaps, sin repetición)
@@ -611,6 +674,8 @@ DataPipeline/
   build_cars.py             Definición de cada coche (formas, detalles y física) y exportación a JSON
   preview_cars.py           Vista previa de los coches sin abrir Unity
   preview_map.py            Mapa de control
+  extras.py                 (v16) Caminos/bidegorris/tren de OSM, cimas, nombres de edificios, estaciones y términos municipales
+  make_circuit_remap.py     (v16) Equivalencia de cruces entre dos versiones de los datos (para los circuitos del servidor)
   requirements.txt
 Server/
   install.sh                Instalador del servidor para Ubuntu (systemd)
@@ -618,6 +683,7 @@ Server/
   HernaniServer/            Servidor multijugador (.NET 8, consola) + servidor web/WebSocket para la versión web
                             + circuitos guardados y rankings (CircuitStore.cs)
   install-web.sh            Sube el build WebGL al servidor (/srv/hernani-web)
+  install-https.sh          (v16) https con Let's Encrypt en el puerto web (renovación automática)
   uninstall.sh              Desinstala el servidor y la versión web sin dejar rastro
 ```
 
@@ -669,11 +735,19 @@ Al terminar muestra **la IP, el puerto y la contraseña**. Apúntalos: son lo qu
   "maxPlayers": 64,
   "maxRooms": 16,
   "webPort": 8080,
-  "webRoot": "/srv/hernani-web"
+  "webRoot": "/srv/hernani-web",
+  "tlsCert": "",
+  "tlsKey": "",
+  "webTrustOwnPage": true
 }
 ```
 `webPort` es el puerto TCP de la versión web (página + WebSocket en `/ws`; `0` la desactiva) y `webRoot` la carpeta del build WebGL.
 Si tu `server.json` es de antes y no los tiene, se usan esos valores por defecto.
+v16: `tlsCert` y `tlsKey` son las rutas del certificado y la clave en formato **PEM** (por ejemplo `fullchain.pem` y `privkey.pem`
+de Let's Encrypt); con los dos puestos, la web va por **https en el mismo `webPort`** y lo que llegue por http se redirige a https.
+Los ficheros tienen que poder leerlos el usuario `hernani` (lo prepara `install-https.sh`, ver 5.10). Vacíos = sólo http.
+`webTrustOwnPage` (por defecto `true`): el juego web cargado desde este mismo servidor entra **sin contraseña** (el servidor lo sabe
+porque la página y el WebSocket tienen la misma dirección). El juego de PC y las webs de otros sitios siguen necesitando la contraseña.
 Opcionales (v14): `"maxCircuits": 500` (circuitos guardados como máximo), `"maxCircuitsPerPlayer": 40` y `"dataFile"`
 (dónde se guardan circuitos y rankings; vacío = `/var/lib/hernani-server/circuits.json` con el servicio). Copia de seguridad:
 `sudo cp /var/lib/hernani-server/circuits.json ~/`.
@@ -697,15 +771,15 @@ Cada vez que cambies el juego hay que repartir el ejecutable nuevo a todos: si l
 
 ### 5.4b La versión web (navegador) en tu servidor
 1. Haz el build web siguiendo el **paso a paso del apartado 1.5** (Unity 6.3: menú *Hernani Racing → 3*, *File → Build Profiles → Web*).
-   Usa el proyecto con tu `server_default.json` (el zip personal): así la web ya trae el servidor y los chavales sólo escriben su nombre.
+   La web se conecta sola a tu servidor (no hace falta `server_default.json`); los chavales sólo escriben su nombre.
 2. Sube esa carpeta al servidor (comprimida en ZIP, por ejemplo con WinSCP o `scp HernaniWeb.zip usuario@IP:`).
 3. En el servidor: `cd HernaniRacing/Server && sudo ./install-web.sh ~/HernaniWeb.zip`
 4. Abre **http://IP-del-servidor:8080** en Chrome, Edge o Firefox (en un PC; en móvil el mundo es demasiado grande).
    La primera carga descarga el juego (decenas de MB) y tarda un poco.
 
 Cuando cambies el juego, repite el build y el paso 3. Para que web y PC jueguen juntos, los dos tienen que ser de la misma versión.
-La web va por `http://` (sin candado): para `https://` haría falta un dominio y un certificado, y entonces se usa `wss://`
-(se puede poner la URL completa en `server_default.json` → `"webUrl": "wss://tu-dominio/ws"`).
+Desde la v16 la web **se conecta sola al servidor del que se ha cargado** (`ws://` con http, `wss://` con https), sin
+`server_default.json` ni contraseña. Para el chat de voz en la web hace falta https: ver **5.10**.
 
 ### 5.5 Cómo se juega online
 1. En la presentación pulsa **JUGAR ONLINE**.
@@ -723,7 +797,8 @@ La web va por `http://` (sin candado): para `https://` haría falta un dominio y
 
 Notas:
 * Online el juego **no se pausa** con Esc: los demás siguen jugando.
-* Los coches de los demás se ven con su nombre encima y en el minimapa (tecla **M**).
+* Los coches de los demás se ven con su nombre encima y en el mapa (tecla **Tab**).
+* **Chat de voz:** **M** abre y cierra tu micrófono; te oye toda la sala al mismo volumen. Mejor con cascos. En la web hace falta https (5.10).
 * Si alguien se desconecta en plena carrera, aparece como *abandona* y su coche desaparece.
 * Para probarlo en un solo PC puedes abrir dos copias del ejecutable y conectarte con dos nombres distintos.
 
@@ -737,6 +812,9 @@ Notas:
 | *Tu juego es más antiguo que el servidor* / *El servidor es más antiguo que tu juego* | Actualiza el juego o el servidor (`git pull` + `sudo ./install.sh`) |
 | *Tu juego tiene otra versión de los datos de Hernani* | Alguien tiene un ejecutable de otra versión: repartid el mismo |
 | *La sala está llena (máximo 8).* | Ya hay 8 jugadores en esa sala |
+| *(web)* *El navegador no deja usar el micrófono (hace falta abrir el juego por https y dar permiso).* | La página va por `http://`: activa https (5.10). O el navegador lo tiene bloqueado: candado de la barra de direcciones → Micrófono → Permitir |
+| *No se encuentra ningún micrófono.* / *No se puede abrir el micrófono.* | Micrófono desconectado, o bloqueado en Windows → Configuración → Privacidad → Micrófono → permite el acceso a las aplicaciones de escritorio |
+| *(web, https)* El navegador avisa de que la conexión no es segura | Entras por la IP o por un nombre que no es el del certificado: usa **https://tu-dominio:8080** |
 
 ### 5.7 Cómo funciona por dentro
 * Red **UDP** con **LiteNetLib** (MIT), incluida como código fuente en `Assets/HernaniRacing/Plugins/LiteNetLib`. Funciona igual en PC, Android e iOS,
@@ -763,7 +841,8 @@ El juego lee el servidor por defecto de `Assets/HernaniRacing/Resources/HernaniN
   "webPort": 8080
 }
 ```
-`webPort` lo usa la versión web (WebSocket `ws://host:8080/ws`); opcionalmente `"webUrl": "wss://..."` fuerza otra URL.
+El juego de PC usa `host`, `port` y `password`. La versión web (v16) **no lo necesita**: se conecta al servidor que le ha servido
+la página. Sólo si la abres desde otro sitio usa `webPort` (o `"webUrl": "wss://..."`) y la contraseña de este fichero.
 Ese fichero va dentro del ejecutable (y de la página web) que repartes, pero **no se sube a GitHub** (está en `.gitignore`), porque el repositorio es público.
 Hay un ejemplo en `Server/server_default.example.json`: cópialo a esa carpeta con ese nombre y rellénalo.
 Si el fichero no existe, en *Opciones de conexión* hay que escribir los datos a mano.
@@ -786,7 +865,8 @@ El script borra:
 4. las reglas de **ufw** que creó el instalador (7777/udp y 8080/tcp);
 5. los restos de la compilación (`/root/.nuget`, `/root/.dotnet`…);
 6. *(pregunta)* **.NET 8**: di que no si lo usas para otras cosas;
-7. *(pregunta)* la carpeta `~/HernaniRacing` y el `~/HernaniWeb.zip` que subiste.
+7. *(pregunta)* la carpeta `~/HernaniRacing` y el `~/HernaniWeb.zip` que subiste;
+8. si activaste https (5.10): el *hook* de renovación de certbot y la regla de ufw del puerto 80, y *(pregunta)* el certificado.
 
 Queda a mano: borrar en el **panel del proveedor** las reglas de 7777 UDP y 8080 TCP y, si quieres, el registro del sistema
 (`sudo journalctl --rotate && sudo journalctl --vacuum-time=1s`; **ojo**, borra el registro de todo el sistema, no sólo el del juego).
@@ -796,6 +876,50 @@ Comprobación final (no debe mostrar ninguna carpeta y el servicio debe salir co
 ```
 ls -d /opt/hernani-server /etc/hernani-server /var/lib/hernani-server /srv/hernani-web 2>/dev/null; systemctl status hernani-server 2>&1 | head -1
 ```
+
+### 5.10 https y chat de voz en la web (v16)
+Los navegadores sólo dejan usar el micrófono en páginas **https**. El juego de PC no lo necesita; la web, sí.
+
+**¿Qué nombre de dominio?** Da igual cuál, siempre que cumpla dos cosas:
+1. su **registro A** del DNS apunta a la IP del servidor (por ejemplo `racing.astarbe.com → 194.x.x.x`);
+2. el **certificado** es de ese mismo nombre (el script lo pide para el nombre que le digas).
+
+Puede ser un subdominio de un dominio que ya tengas (`racing.astarbe.com`) y no hace falta que la web principal del dominio
+esté en este servidor. Las direcciones quedan así: `https://racing.astarbe.com:8080`.
+
+**Activarlo** (en el servidor, con el servidor ya instalado y el registro A creado):
+```
+cd ~/HernaniRacing && git pull && cd Server
+sudo ./install-https.sh racing.astarbe.com tu@correo.com     # el correo es opcional (avisos de caducidad)
+```
+El script:
+1. comprueba que el nombre apunta a este servidor (sólo avisa);
+2. si ya hay un certificado de Let's Encrypt para ese nombre (`/etc/letsencrypt/live/NOMBRE`) lo usa; si no, instala **certbot** y lo pide.
+   Para pedirlo, Let's Encrypt entra por el **puerto 80 TCP** un momento: ábrelo también en el panel del proveedor. Si el 80
+   lo usa otro programa (nginx, apache), el script te dice cómo pedirlo con él y volver a ejecutarlo;
+3. copia `fullchain.pem` y `privkey.pem` a `/etc/hernani-server/tls/` (el servicio corre como `hernani` y no puede leer
+   `/etc/letsencrypt`) e instala un *hook* de certbot que los vuelve a copiar en cada **renovación automática** (cada ~60 días).
+   El servidor ve el certificado nuevo solo, **sin reiniciarse** (lo comprueba cada minuto);
+4. pone `tlsCert` y `tlsKey` en `server.json` y reinicia el servicio.
+
+Desde entonces, en el **mismo puerto 8080**: `https://racing.astarbe.com:8080` funciona con candado, y quien entre por
+`http://racing.astarbe.com:8080` o `http://IP:8080` es **redirigido** a `https://racing.astarbe.com:8080`. El juego web se conecta solo
+por `wss://` al mismo servidor. El online de PC (UDP 7777) no cambia.
+
+**Con un certificado propio** (no de Let's Encrypt): copia el certificado (con la cadena) y la clave en PEM a `/etc/hernani-server/tls/`,
+`sudo chown -R hernani:hernani /etc/hernani-server/tls`, pon sus rutas en `tlsCert` / `tlsKey` y `sudo systemctl restart hernani-server`.
+
+**Comprobar:** `sudo journalctl -u hernani-server -n 20` debe mostrar *«Certificado https: racing.astarbe.com (caduca …)»* y
+*«Web: https://0.0.0.0:8080/ (WebSocket en /ws, http → https)»*. Si pone *«no puedo leer el certificado … sigo sólo con http»*,
+revisa las rutas y los permisos.
+
+**Quitar https:** borra los valores de `tlsCert` y `tlsKey` en `server.json` (déjalos en `""`) y `sudo systemctl restart hernani-server`.
+`uninstall.sh` quita también el *hook* de certbot y pregunta si borrar el certificado.
+
+**Cómo funciona la voz:** cada jugador graba a 16 kHz, lo comprime con **Opus** (librería Concentus, C#, incluida como código en
+`Plugins/Concentus`) en trozos de 40 ms y sólo cuando hay voz (puerta de ruido). El servidor reenvía los trozos a los demás de la
+sala sin descomprimirlos (como mucho 40 por segundo por jugador). En la web, la grabación y la reproducción las hace el navegador
+(`Plugins/WebGL/HernaniVoice.jslib`, getUserMedia + Web Audio), porque Unity 6.3 no tiene micrófono en WebGL.
 
 ---
 
@@ -812,10 +936,13 @@ ls -d /opt/hernani-server /etc/hernani-server /var/lib/hernani-server /srv/herna
 * **PNOA** (ortofoto de máxima actualidad, WMS `pnoa-ma`) – © Instituto Geográfico Nacional, licencia **CC BY 4.0**. Sólo se usa si
   la ortofoto de Navarra no respondiera al regenerar las fotos con `build_ortho.py`.
 * **OpenStreetMap** – © OpenStreetMap contributors, licencia **ODbL 1.0** (<https://www.openstreetmap.org/copyright>).
-  Se usa para los sentidos de circulación, carriles, rotondas, semáforos, señales STOP / ceda y pasos de cebra.
+  Se usa para los sentidos de circulación, carriles, rotondas, semáforos, señales STOP / ceda y pasos de cebra y (v16) para
+  completar caminos de monte y bidegorris, la vía del tren y sus estaciones, las cimas, los nombres de edificios y los términos municipales.
   Los datos derivados (`roads.json`) quedan bajo ODbL.
 * **Coches** – modelos propios generados por `DataPipeline/build_cars.py`, dominio público (**CC0 1.0**). Inspirados en coches reales, sin marcas ni logotipos.
 * **Aforos de tráfico** (perfil horario de la A-15) – Diputación Foral de Gipuzkoa, vía **Open Data Euskadi** (<https://opendata.euskadi.eus>), licencia **CC BY 4.0**.
+* **Concentus** 1.2 (Opus en C#) – © Logan Stromberg y los autores de Opus (Xiph.Org, Skype, Microsoft…), licencia **BSD de 3 cláusulas**
+  (`Plugins/Concentus/LICENSE.txt`, <https://github.com/lostromb/concentus>). Para el chat de voz.
 * **LiteNetLib** 1.2.0 – © Ruslan Pyrch, licencia **MIT** (`Plugins/LiteNetLib/LICENSE.txt`, <https://github.com/RevenantX/LiteNetLib>).
 
 Los datos incluidos en este paquete se generaron con el **MDT05 del IGN** porque el servicio de geoEuskadi no

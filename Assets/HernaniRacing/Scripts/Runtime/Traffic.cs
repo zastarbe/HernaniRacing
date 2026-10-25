@@ -134,9 +134,18 @@ namespace HernaniRacing
         /// <summary>Probabilidad de que salga un coche en cada tipo de vía (más en la autovía y carreteras).</summary>
         static float RoadWeight(RoadEdge e)
         {
+            // v16: por los caminos de monte sólo algún todoterreno; por bidegorris y vías de tren, nada
+            if (e.kind == RoadEdge.KindPath) return OffroadWeight;
+            if (!e.IsRoad) return 0f;
             if (e.type == "Carretera") return e.lanes >= 2 ? 1f : 0.6f;
             return e.lanes >= 2 ? 0.35f : 0.2f;
         }
+        /// <summary>v16: probabilidad relativa de que salga un todoterreno (Land Rover) en un tramo de camino.</summary>
+        const float OffroadWeight = 0.05f;
+        public const string OffroadModel = "suv";
+        const int MaxOffroad = 3;
+        /// <summary>v16: densidad de peatones en caminos y bidegorris respecto a las aceras (1/10).</summary>
+        const float PathPedFactor = 0.1f;
         public readonly List<TrafficCar> cars = new List<TrafficCar>();
         public readonly List<Pedestrian> peds = new List<Pedestrian>();
         // online: tráfico/peatones que simulan otros jugadores y coches de los otros jugadores
@@ -316,7 +325,14 @@ namespace HernaniRacing
                 foreach (var rc in remoteCars) if (rc != null && Flat(rc.transform.position - p) < 18f) { clear = false; break; }
                 if (clear && NearOther(p, rMin)) clear = false;
                 if (!clear) continue;
-                string id = CarModels.PickTraffic(rnd);
+                bool offroad = e.kind == RoadEdge.KindPath;
+                if (offroad)
+                {
+                    int nOff = 0;
+                    foreach (var c in cars) if (c != null && c.offroad) nOff++;
+                    if (nOff >= MaxOffroad) continue;      // sólo "algún" Land Rover por el monte
+                }
+                string id = offroad ? OffroadModel : CarModels.PickTraffic(rnd);
                 var md = CarModels.Get(id);
                 if (md == null) return;
                 Color paint = CarModels.FixedLivery(id) ? CarModels.DefaultPaint(id) : Paints[rnd.Next(Paints.Length)];
@@ -325,6 +341,7 @@ namespace HernaniRacing
                 tc.netId = NewNetId();
                 tc.modelIndex = models.IndexOf(id);
                 tc.paint = paint;
+                tc.offroad = offroad || (id == OffroadModel && rnd.NextDouble() < 0.5);
                 tc.Init(this, md, ei, fwd, s, rnd.Next());
                 cars.Add(tc);
                 return;
@@ -342,6 +359,7 @@ namespace HernaniRacing
                 var e = g.edges[ei];
                 float s0, s1;
                 if (!Pedestrian.Sidewalk(g, e, out s0, out s1)) continue;
+                if (!e.IsRoad && rnd.NextDouble() > PathPedFactor) continue;   // v16: caminos y bidegorris, 1/10
                 float s = Mathf.Lerp(s0, s1, (float)rnd.NextDouble());
                 Vector3 p = e.PointAt(s, true);
                 float d = Flat(p - pp);
@@ -410,6 +428,9 @@ namespace HernaniRacing
         public int JunctionNode { get { return route.Count > 0 && route[0].turn ? route[0].node : -1; } }
         public float DistToEnd { get { return route.Count > 0 ? route[0].length - t : 0f; } }
 
+        /// <summary>v16: todoterreno que también circula por caminos de monte.</summary>
+        public bool offroad;
+
         public void Init(TrafficSystem s, CarModelData m, int edge, bool fwd, float sEdge, int seed)
         {
             sys = s; world = s.world; g = world.graph; model = m;
@@ -450,6 +471,7 @@ namespace HernaniRacing
         float BaseSpeed(RoadEdge e)
         {
             float vmax = e.width >= 10f ? 25f : (e.type == "Carretera" ? 13.9f : 8.6f);
+            if (e.kind == RoadEdge.KindPath) vmax = 6.5f;      // pista de monte: ~23 km/h
             if (e.roundabout) vmax = Mathf.Min(vmax, 8f);
             return vmax * v0Factor;
         }
@@ -525,20 +547,22 @@ namespace HernaniRacing
             Vector3 inDir = -g.DepartDir(curEdge, node, 8f);
             float total = 0;
             var cand = new List<KeyValuePair<int, float>>();
-            foreach (int ei in g.adj[node])
+            foreach (int ei in (offroad ? g.adjAll[node] : g.adj[node]))
             {
                 if (ei == curEdge) continue;
                 var e = g.edges[ei];
                 if (!e.AllowsFrom(node) || e.length < 3f) continue;
+                if (e.kind == RoadEdge.KindBike || e.kind == RoadEdge.KindRail) continue;
                 Vector3 od = g.DepartDir(ei, node, 8f);
                 float ang = Vector3.Angle(inDir, od);
                 float wgt = ang < 35f ? 3f : (ang < 135f ? 1.2f : 0.15f);
                 if (e.type == "Carretera") wgt *= 1.4f;
-                if (g.adj[e.Other(node)].Count <= 1) wgt *= 0.15f;   // fondos de saco: poco probables
+                if (e.kind == RoadEdge.KindPath) wgt *= 1.5f;      // el todoterreno prefiere el monte
+                else if (g.adj[e.Other(node)].Count <= 1) wgt *= 0.15f;   // fondos de saco: poco probables
                 cand.Add(new KeyValuePair<int, float>(ei, wgt));
                 total += wgt;
             }
-            if (cand.Count == 0) return cur.Allows(cur.b != node) ? curEdge : -1;   // sin salida legal: media vuelta si la calle es de doble sentido
+            if (cand.Count == 0) return cur.Allows(cur.b != node) || !cur.IsRoad ? curEdge : -1;   // sin salida legal: media vuelta si la calle es de doble sentido
             float r = (float)rnd.NextDouble() * total;
             foreach (var c in cand) { r -= c.Value; if (r <= 0) return c.Key; }
             return cand[cand.Count - 1].Key;
@@ -860,6 +884,12 @@ namespace HernaniRacing
         public static bool Sidewalk(RoadGraph g, RoadEdge e, out float s0, out float s1)
         {
             s0 = s1 = 0;
+            if (e.kind == RoadEdge.KindPath || e.kind == RoadEdge.KindBike)
+            {
+                // v16: por caminos y bidegorris se anda por el propio camino (también por sus puentes y túneles)
+                s0 = Mathf.Min(1f, e.length * 0.2f); s1 = e.length - s0;
+                return s1 - s0 > 2f;
+            }
             if (e.type != "Calle") return false;
             foreach (int f in e.flags) if (f == 1 || f == 2) return false;
             s0 = g.adj[e.a].Count >= 3 ? g.NodeRadius(e.a) + 2.5f : 0f;
@@ -938,6 +968,12 @@ namespace HernaniRacing
         {
             var e = g.edges[ei];
             Vector3 c = e.PointAt(sEdge, true);
+            if (!e.IsRoad)
+            {
+                Vector3 qp = c + Lanes.Right(e, sEdge) * sd * (e.width * 0.22f);
+                qp.y = world.SurfaceHeight(qp, c.y) + 0.06f;
+                return qp;
+            }
             Vector3 q = c + Lanes.Right(e, sEdge) * sd * (e.width * 0.5f + 1.0f);
             q.y = world.SurfaceHeight(q, c.y) + 0.13f;
             return q;
@@ -1122,7 +1158,7 @@ namespace HernaniRacing
             var e = g.edges[edge];
             int node = fwd ? e.b : e.a;
             var opts = new List<int>();
-            foreach (int ei in g.adj[node])
+            foreach (int ei in g.adjAll[node])
             {
                 float a, b;
                 if (ei != edge && Sidewalk(g, g.edges[ei], out a, out b)) opts.Add(ei);

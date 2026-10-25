@@ -25,6 +25,8 @@ namespace HernaniRacing
         public const float ChunkSize = 512f;
         public int chunksX = 1, chunksZ = 1;
         public int ChunkTotal { get { return chunksX * chunksZ; } }
+        public Signage signage;
+        public Trains trains;
         public int ChunkIndex(Vector3 p)
         {
             int cx = Mathf.Clamp((int)(p.x / ChunkSize), 0, chunksX - 1);
@@ -139,6 +141,7 @@ namespace HernaniRacing
             progress("Señalización, semáforos y marcas viales (OSM)...", 0.5f);
             yield return null;
             RoadFurniture.Build(w);
+            w.trains = Trains.Create(w);       // v16: Cercanías por la vía (horario común online)
 
             progress("Río Urumea y regatas...", 0.55f);
             yield return null;
@@ -147,6 +150,7 @@ namespace HernaniRacing
             progress("Extruyendo edificios (alturas LiDAR)...", 0.65f);
             yield return null;
             BuildBuildings(w);
+            w.signage = Signage.Build(w);      // v16: carteles de los montes y placas de las casas
 
             progress("Plantando árboles...", 0.85f);
             yield return null;
@@ -406,6 +410,77 @@ namespace HernaniRacing
             return g.adj[node].Count >= 3 ? g.NodeRadius(node) + 2.0f : 0f;
         }
 
+        // ------------------------------------------------------------------ v16: caminos, bidegorris y tren
+        public static readonly Color DirtPath = new Color(0.47f, 0.36f, 0.24f);
+        public static readonly Color BikeLane = new Color(0.62f, 0.17f, 0.13f);
+        public static readonly Color Ballast = new Color(0.45f, 0.43f, 0.40f);
+        /// <summary>Distancia entre ejes de las dos vías (las líneas de b5m son el eje de la doble vía).</summary>
+        public const float TrackSpacing = 4.2f, Gauge = 1.67f;
+
+        static int SubOf(RoadEdge e)
+        {
+            switch (e.kind) { case RoadEdge.KindPath: return 1; case RoadEdge.KindBike: return 2; case RoadEdge.KindRail: return 3; default: return 0; }
+        }
+
+        /// <summary>Un camino que llega a una calle empieza en el borde del asfalto (o del cruce).</summary>
+        static float PathTrim(RoadGraph g, int node)
+        {
+            if (g.adj[node].Count == 0) return 0f;
+            return g.adj[node].Count >= 3 ? g.NodeRadius(node) + 0.8f : g.NodeRadius(node) - 0.3f;
+        }
+
+        /// <summary>Ejes laterales de las vías de una línea de tren (doble vía si la plataforma es ancha).</summary>
+        public static float[] TrackOffsets(RoadEdge e)
+        {
+            return e.width >= 7f ? new[] { -TrackSpacing * 0.5f, TrackSpacing * 0.5f } : new[] { 0f };
+        }
+
+        /// <summary>Carriles (visual): pegados al terreno a nivel, a la cota del tablero/solera en puentes y túneles.</summary>
+        static void RailTrack(World w, RoadEdge e, float s0, float s1, int flag, MeshBuilder mb)
+        {
+            var path = Resample(e, s0, s1, 2f);
+            if (path.Count < 2) return;
+            bool grade = flag != 1 && flag != 2;
+            for (int i = 0; i < path.Count; i++)
+            {
+                var q = path[i];
+                q.y = (grade ? w.SurfaceHeight(q, q.y) + DrapeOffset - 0.012f : q.y + 0.03f);
+                path[i] = q;
+            }
+            foreach (float t in TrackOffsets(e))
+                for (int k = -1; k <= 1; k += 2)
+                {
+                    float x = t + k * Gauge * 0.5f;
+                    var prof = new[] { new Vector2(x - 0.05f, 0.0f), new Vector2(x - 0.05f, 0.17f), new Vector2(x + 0.05f, 0.17f), new Vector2(x + 0.05f, 0.0f) };
+                    mb.Extrude(0, path, prof, 0.5f);
+                }
+        }
+
+        /// <summary>Caminos y bidegorris sin conexión con la red (vienen aparte en scenery.loose): sólo se dibujan.</summary>
+        static void BuildLoosePaths(World w, MeshBuilder[] road)
+        {
+            var loose = w.data.scenery.loose;
+            if (loose == null) return;
+            foreach (var l in loose)
+            {
+                int n = l.p == null ? 0 : l.p.Length / 3;
+                if (n < 2) continue;
+                var raw = new List<Vector3>(n);
+                for (int i = 0; i < n; i++) raw.Add(new Vector3(l.p[i * 3], l.p[i * 3 + 1], l.p[i * 3 + 2]));
+                var path = new List<Vector3> { raw[0] };
+                for (int i = 1; i < n; i++)
+                {
+                    float d = Vector3.Distance(raw[i - 1], raw[i]);
+                    int k = Mathf.Max(1, Mathf.CeilToInt(d / 2f));
+                    for (int j = 1; j <= k; j++) path.Add(Vector3.Lerp(raw[i - 1], raw[i], j / (float)k));
+                }
+                int sub = l.t == "Bidegorri" ? 2 : 1;
+                float hw = Mathf.Max(0.8f, l.w * 0.5f);
+                int ch = ChunkOf(w, path[path.Count / 2]);
+                DrapeStrip(w, road[ch], sub, path, -hw, hw, 2, DrapeOffset - 0.012f, true);
+            }
+        }
+
         /// <summary>Remuestrea el eje de la calle entre s0 y s1 cada 'step' metros (posiciones XZ).</summary>
         static List<Vector3> Resample(RoadEdge e, float s0, float s1, float step)
         {
@@ -508,9 +583,11 @@ namespace HernaniRacing
             var tfloor = new MeshBuilder[nc];   // túneles: solera 0 asfalto, 1 hormigón (con colisión)
             var lamps = new MeshBuilder[nc];    // túneles: luminarias (visual, emisivo)
             var walk = new MeshBuilder[nc];     // aceras (visual)
+            var rails = new MeshBuilder[nc];    // v16: carriles de las vías de tren (visual)
             for (int i = 0; i < nc; i++)
             {
-                road[i] = new MeshBuilder(1); deck[i] = new MeshBuilder(2);
+                road[i] = new MeshBuilder(4); deck[i] = new MeshBuilder(2);   // calzada: 0 asfalto, 1 tierra, 2 bidegorri, 3 balasto
+                rails[i] = new MeshBuilder(1);
                 tube[i] = new MeshBuilder(1); shell[i] = new MeshBuilder(1);
                 tfloor[i] = new MeshBuilder(2); lamps[i] = new MeshBuilder(1);
                 walk[i] = new MeshBuilder(1);
@@ -521,7 +598,7 @@ namespace HernaniRacing
             for (int n = 0; n < g.nodes.Length; n++)
             {
                 int cnt = 0, br = 0;
-                foreach (int ei in g.adj[n])
+                foreach (int ei in g.adjAll[n])
                 {
                     var e = g.edges[ei];
                     if (e.a == e.b) continue;
@@ -538,8 +615,13 @@ namespace HernaniRacing
                 var ed = w.data.roads.edges[ei];
                 int ch = ChunkOf(w, e.pts[e.pts.Length / 2]);
                 float hw = e.width * 0.5f;
-                int cols = e.width >= 8f ? 5 : 4;
+                int cols = !e.IsRoad ? (e.kind == RoadEdge.KindRail ? 4 : 2) : (e.width >= 8f ? 5 : 4);
+                int sub = SubOf(e);
+                float off = e.IsRoad ? DrapeOffset : DrapeOffset - 0.012f;   // el asfalto queda encima en los empalmes
                 float trimA = TrimAt(g, e.a), trimB = TrimAt(g, e.b);
+                // v16: los caminos empiezan en el borde de la calle con la que empalman (sin pisar el asfalto)
+                float pA = e.IsRoad ? 0f : PathTrim(g, e.a), pB = e.IsRoad ? 0f : PathTrim(g, e.b);
+                if (pA + pB > e.length - 1f) { pA = pB = 0f; }
                 int last = e.pts.Length - 1;
                 int tunnelRun = 0;
                 int i0 = 0;
@@ -569,9 +651,11 @@ namespace HernaniRacing
                         float d0 = s0, d1 = s1;
                         if (i0 > 0 && e.flags[i0] == 2) d0 += TunnelApron;
                         if (i1 < last && e.flags[i1 + 1] == 2) d1 -= TunnelApron;
+                        d0 = Mathf.Max(d0, pA); d1 = Mathf.Min(d1, e.length - pB);
                         var path = Resample(e, d0, d1, 2f);
-                        DrapeStrip(w, road[ch], 0, path, -hw, hw, cols, DrapeOffset, true);
+                        DrapeStrip(w, road[ch], sub, path, -hw, hw, cols, off, true);
                     }
+                    if (e.kind == RoadEdge.KindRail) RailTrack(w, e, s0, s1, f, rails[ch]);
                     i0 = i1;
                 }
 
@@ -612,13 +696,18 @@ namespace HernaniRacing
             var tunnelMat = Mat.Textured("tunnel", Tex.Noise("tunnel", new Color(0.78f, 0.77f, 0.74f), 0.06f, 32, 9), Color.white, 0.1f);
             var lampMat = Mat.Emissive(new Color(1f, 0.92f, 0.7f));
             var walkMat = Mat.Textured("sidewalk", Tex.Noise("sidewalk", Sidewalk, 0.08f, 32, 5), Color.white, 0.05f);
+            var dirtMat = Mat.Textured("dirtpath", Tex.Noise("dirtpath", DirtPath, 0.22f, 64, 11), Color.white, 0.05f);
+            var bikeMat = Mat.Textured("bidegorri", Tex.Noise("bidegorri", BikeLane, 0.10f, 64, 12), Color.white, 0.12f);
+            var ballastMat = Mat.Textured("ballast", Tex.Noise("ballast", Ballast, 0.30f, 64, 13), Color.white, 0.05f);
+            var railMat = Mat.Color(new Color(0.42f, 0.40f, 0.38f), 0.55f);
+            BuildLoosePaths(w, road);
             var parent = new GameObject("Viales b5m").transform;
             parent.SetParent(w.root, false);
             for (int i = 0; i < nc; i++)
             {
                 if (road[i].VertexCount > 0)
                 {
-                    var go = MeshBuilder.Spawn("Calzada_" + i, road[i].Build("roads_" + i), new[] { asphalt }, parent, false);
+                    var go = MeshBuilder.Spawn("Calzada_" + i, road[i].Build("roads_" + i), new[] { asphalt, dirtMat, bikeMat, ballastMat }, parent, false);
                     go.GetComponent<MeshRenderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                 }
                 if (deck[i].VertexCount > 0)
@@ -640,6 +729,11 @@ namespace HernaniRacing
                 if (walk[i].VertexCount > 0)
                 {
                     var go = MeshBuilder.Spawn("Aceras_" + i, walk[i].Build("walk_" + i), new[] { walkMat }, parent, false);
+                    go.GetComponent<MeshRenderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                }
+                if (rails[i].VertexCount > 0)
+                {
+                    var go = MeshBuilder.Spawn("Carriles_" + i, rails[i].Build("rails_" + i), new[] { railMat }, parent, false);
                     go.GetComponent<MeshRenderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                 }
             }

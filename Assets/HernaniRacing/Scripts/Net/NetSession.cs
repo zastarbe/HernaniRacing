@@ -53,14 +53,57 @@ namespace HernaniRacing
         public int customPort;
         NetConfig.ServerDefaults defaults;
 
-        public bool HasDefault { get { return defaults != null && !string.IsNullOrEmpty(defaults.host); } }
+        /// <summary>
+        /// v16, versión web: el servidor del que se ha cargado la página ("http(s)://host:puerto"), o null si no hay
+        /// (abierto como fichero). Así la web siempre juega con su propio servidor, sin fichero de configuración.
+        /// </summary>
+        public static string PageOrigin
+        {
+            get
+            {
+                if (!IsWebBuild) return null;
+                string u = Application.absoluteURL ?? "";
+                int i = u.IndexOf("://");
+                if (i <= 0) return null;
+                string scheme = u.Substring(0, i).ToLowerInvariant();
+                if (scheme != "http" && scheme != "https") return null;
+                int j = u.IndexOfAny(new[] { '/', '?', '#' }, i + 3);
+                string hostPort = j < 0 ? u.Substring(i + 3) : u.Substring(i + 3, j - i - 3);
+                if (string.IsNullOrEmpty(hostPort)) return null;
+                return scheme + "://" + hostPort;
+            }
+        }
+        bool FileDefault { get { return defaults != null && !string.IsNullOrEmpty(defaults.host); } }
+        public bool HasDefault { get { return FileDefault || PageOrigin != null; } }
         bool UseDefaultNow { get { return HasDefault && useDefault; } }
-        public string EffectiveHost { get { return (UseDefaultNow ? defaults.host : customHost ?? "").Trim(); } }
+        public string EffectiveHost
+        {
+            get
+            {
+                if (UseDefaultNow && IsWebBuild && PageOrigin != null)
+                {
+                    string hp = PageOrigin.Substring(PageOrigin.IndexOf("://") + 3);
+                    int c = hp.LastIndexOf(':');
+                    return c > 0 && hp.IndexOf(']') < c ? hp.Substring(0, c) : hp;
+                }
+                return (UseDefaultNow ? defaults.host : customHost ?? "").Trim();
+            }
+        }
         public int EffectivePort
         {
             get
             {
-                if (IsWebBuild) return UseDefaultNow ? (defaults.webPort > 0 ? defaults.webPort : NetProto.DefaultWebPort) : customPort;
+                if (IsWebBuild)
+                {
+                    if (UseDefaultNow && PageOrigin != null)
+                    {
+                        string hp = PageOrigin.Substring(PageOrigin.IndexOf("://") + 3);
+                        int c = hp.LastIndexOf(':'), port;
+                        if (c > 0 && hp.IndexOf(']') < c && int.TryParse(hp.Substring(c + 1), out port)) return port;
+                        return PageOrigin.StartsWith("https") ? 443 : 80;
+                    }
+                    return UseDefaultNow ? (defaults.webPort > 0 ? defaults.webPort : NetProto.DefaultWebPort) : customPort;
+                }
                 return UseDefaultNow ? (defaults.port > 0 ? defaults.port : NetConfig.DefaultPort) : customPort;
             }
         }
@@ -70,7 +113,11 @@ namespace HernaniRacing
             get
             {
                 if (!IsWebBuild) return EffectiveHost;
-                if (UseDefaultNow && !string.IsNullOrEmpty(defaults.webUrl)) return defaults.webUrl.Trim();
+                // v16: la web juega SIEMPRE con el servidor que le ha servido la página (mismo host y puerto; wss si es https)
+                string origin = PageOrigin;
+                if (UseDefaultNow && origin != null)
+                    return (origin.StartsWith("https://") ? "wss://" : "ws://") + origin.Substring(origin.IndexOf("://") + 3) + NetProto.WebSocketPath;
+                if (UseDefaultNow && FileDefault && !string.IsNullOrEmpty(defaults.webUrl)) return defaults.webUrl.Trim();
                 string h = EffectiveHost;
                 if (h.StartsWith("ws://") || h.StartsWith("wss://")) return h;
                 // página servida por https: el navegador exige WebSocket seguro (wss)
@@ -79,8 +126,17 @@ namespace HernaniRacing
                 return scheme + h + ":" + EffectivePort + NetProto.WebSocketPath;
             }
         }
-        string EffectivePassword { get { return UseDefaultNow ? defaults.password ?? "" : customPassword ?? ""; } }
-        public string DefaultLabel { get { return !HasDefault ? "" : (string.IsNullOrEmpty(defaults.name) ? defaults.host : defaults.name); } }
+        // (la web servida por el propio servidor no necesita contraseña: el servidor se fía de su propia página)
+        string EffectivePassword { get { return UseDefaultNow ? (defaults != null ? defaults.password ?? "" : "") : customPassword ?? ""; } }
+        public string DefaultLabel
+        {
+            get
+            {
+                if (!HasDefault) return "";
+                if (IsWebBuild && PageOrigin != null) return (FileDefault && !string.IsNullOrEmpty(defaults.name) ? defaults.name + " · " : "") + EffectiveHost;
+                return string.IsNullOrEmpty(defaults.name) ? defaults.host : defaults.name;
+            }
+        }
         public string ServerLabel { get { return UseDefaultNow ? DefaultLabel + " (por defecto)" : EffectiveHost + ":" + EffectivePort; } }
         public int myColor = 0xD9141A;
         public string myCar = "turismo";
@@ -118,6 +174,7 @@ namespace HernaniRacing
             Core.ErrorReceived += e => ShowToast(e, 5f);
             Core.InfoReceived += e => ShowToast(e, 5f);
             Core.Disconnected += OnDisconnected;
+            VoiceChat.Attach(this);         // v16: chat de voz (tecla M)
         }
 
         void OnDestroy()

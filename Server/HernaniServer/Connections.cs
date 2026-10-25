@@ -52,6 +52,8 @@ namespace HernaniRacing.Server
         public double lastRecv;
         public double rttSmoothed = -1;
         public bool accepted;
+        /// <summary>v16: viene de la página del juego servida por este servidor (no necesita contraseña).</summary>
+        public bool ownPage;
 
         public WsConn(WebSocket socket, string remoteAddress, double now) { ws = socket; remote = remoteAddress; lastRecv = now; }
 

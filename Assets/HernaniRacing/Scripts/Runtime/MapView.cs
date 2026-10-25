@@ -118,15 +118,30 @@ namespace HernaniRacing
                     for (int i = 0; i + 5 < r.p.Length; i += 3)
                         Line(px, W, H, new Vector2(r.p[i] * sc, r.p[i + 2] * sc), new Vector2(r.p[i + 3] * sc, r.p[i + 5] * sc),
                              Mathf.Max(0.8f, r.width * 0.5f * sc), new Color32(70, 130, 200, 255));
+            // v16: caminos de monte (marrón), bidegorris (rojo) y vías de tren (gris oscuro), debajo de las calles
+            if (w.data.scenery.loose != null)
+                foreach (var l in w.data.scenery.loose)
+                    for (int i = 0; i + 5 < l.p.Length; i += 3)
+                        Line(px, W, H, new Vector2(l.p[i] * sc, l.p[i + 2] * sc), new Vector2(l.p[i + 3] * sc, l.p[i + 5] * sc),
+                             0.6f, PathColor(l.t == "Bidegorri" ? RoadEdge.KindBike : RoadEdge.KindPath));
+            foreach (var e in w.graph.edges)
+            {
+                if (e.IsRoad) continue;
+                float rad = e.kind == RoadEdge.KindRail ? Mathf.Max(0.8f, 1.6f * sc) : 0.6f;
+                for (int i = 0; i + 1 < e.pts.Length; i++)
+                    Line(px, W, H, new Vector2(e.pts[i].x * sc, e.pts[i].z * sc), new Vector2(e.pts[i + 1].x * sc, e.pts[i + 1].z * sc), rad, PathColor(e.kind));
+            }
             // calles (con su anchura real); primero el borde oscuro y luego el relleno
             foreach (var e in w.graph.edges)
             {
+                if (!e.IsRoad) continue;
                 float rad = Mathf.Max(1.0f, e.width * 0.5f * sc);
                 for (int i = 0; i + 1 < e.pts.Length; i++)
                     Line(px, W, H, new Vector2(e.pts[i].x * sc, e.pts[i].z * sc), new Vector2(e.pts[i + 1].x * sc, e.pts[i + 1].z * sc), rad + 0.8f, new Color32(30, 30, 32, 255));
             }
             foreach (var e in w.graph.edges)
             {
+                if (!e.IsRoad) continue;
                 float rad = Mathf.Max(0.6f, e.width * 0.5f * sc);
                 var col = e.width >= 10f ? new Color32(235, 160, 90, 255) : (e.type == "Carretera" ? new Color32(240, 215, 140, 255) : new Color32(215, 215, 215, 255));
                 for (int i = 0; i + 1 < e.pts.Length; i++)
@@ -276,7 +291,19 @@ namespace HernaniRacing
         volatile bool workerDone;
         Color32[] workerPx;
         Rect workerArea;
-        Vector3[][] edgePts; float[] edgeWidth; bool[] edgeMain;
+        Vector3[][] edgePts; float[] edgeWidth; bool[] edgeMain; int[] edgeKind;
+
+        /// <summary>v16: color en el plano de caminos (marrón), bidegorris (rojo) y vías de tren (gris oscuro).</summary>
+        public static Color32 PathColor(int kind)
+        {
+            switch (kind)
+            {
+                case RoadEdge.KindPath: return new Color32(150, 112, 70, 255);
+                case RoadEdge.KindBike: return new Color32(200, 50, 40, 255);
+                case RoadEdge.KindRail: return new Color32(70, 66, 72, 255);
+                default: return new Color32(215, 215, 215, 255);
+            }
+        }
         Vector2[][] bldPolys; Rect[] bldBox;
         Vector2[][] rivPts; float[] rivWidth;
         Vector3[] circuitPts;
@@ -335,9 +362,23 @@ namespace HernaniRacing
             if (edgePts != null) return;
             var g = world.graph;
             edgePts = new Vector3[g.edges.Length][]; edgeWidth = new float[g.edges.Length]; edgeMain = new bool[g.edges.Length];
+            edgeKind = new int[g.edges.Length];
             for (int i = 0; i < g.edges.Length; i++)
             {
                 edgePts[i] = g.edges[i].pts; edgeWidth[i] = g.edges[i].width; edgeMain[i] = g.edges[i].type == "Carretera";
+                edgeKind[i] = g.edges[i].kind;
+            }
+            // caminos sueltos (sin conexión): como aristas de tipo camino/bidegorri sólo para dibujar
+            if (world.data.scenery.loose != null)
+            {
+                var lp = new List<Vector3[]>(edgePts); var lw = new List<float>(edgeWidth); var lm = new List<bool>(edgeMain); var lk = new List<int>(edgeKind);
+                foreach (var l in world.data.scenery.loose)
+                {
+                    var pts = new Vector3[l.p.Length / 3];
+                    for (int i = 0; i < pts.Length; i++) pts[i] = new Vector3(l.p[i * 3], l.p[i * 3 + 1], l.p[i * 3 + 2]);
+                    lp.Add(pts); lw.Add(l.w); lm.Add(false); lk.Add(l.t == "Bidegorri" ? RoadEdge.KindBike : RoadEdge.KindPath);
+                }
+                edgePts = lp.ToArray(); edgeWidth = lw.ToArray(); edgeMain = lm.ToArray(); edgeKind = lk.ToArray();
             }
             var bl = new List<Vector2[]>(); var bb = new List<Rect>();
             foreach (var b in world.data.buildings.buildings)
@@ -395,18 +436,22 @@ namespace HernaniRacing
                     if (big.Contains(r[i]) || big.Contains(r[i + 1]))
                         Line(px, W, H, tp(r[i]), tp(r[i + 1]), Mathf.Max(1f, rivWidth[k] * 0.5f * sc), new Color32(70, 130, 200, 255));
             }
-            for (int pass = 0; pass < 2; pass++)
+            for (int pass = 0; pass < 3; pass++)
                 for (int k = 0; k < edgePts.Length; k++)
                 {
+                    // pasada 0: caminos/bidegorris/tren (sin borde); 1: borde oscuro de las calles; 2: relleno de las calles
+                    bool road = edgeKind[k] == RoadEdge.KindRoad;
+                    if ((pass == 0) == road) continue;
                     var pts = edgePts[k];
-                    float rad = Mathf.Max(1.5f, edgeWidth[k] * 0.5f * sc);
-                    var col = pass == 0 ? new Color32(30, 30, 32, 255)
+                    float rad = road ? Mathf.Max(1.5f, edgeWidth[k] * 0.5f * sc)
+                        : Mathf.Max(1.0f, (edgeKind[k] == RoadEdge.KindRail ? 1.6f : edgeWidth[k] * 0.4f) * sc);
+                    var col = pass == 0 ? PathColor(edgeKind[k]) : pass == 1 ? new Color32(30, 30, 32, 255)
                         : edgeWidth[k] >= 10f ? new Color32(235, 160, 90, 255) : (edgeMain[k] ? new Color32(240, 215, 140, 255) : new Color32(215, 215, 215, 255));
                     for (int i = 0; i + 1 < pts.Length; i++)
                     {
                         Vector2 a = new Vector2(pts[i].x, pts[i].z), b = new Vector2(pts[i + 1].x, pts[i + 1].z);
                         if (!big.Contains(a) && !big.Contains(b) && !SegmentNear(a, b, big)) continue;
-                        Line(px, W, H, tp(a), tp(b), pass == 0 ? rad + 1.6f : rad, col);
+                        Line(px, W, H, tp(a), tp(b), pass == 1 ? rad + 1.6f : rad, col);
                     }
                 }
             if (circuitPts != null && circuitPts.Length > 1)

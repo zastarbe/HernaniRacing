@@ -90,7 +90,10 @@ EXTRA_ZONES = [{"name": "Ugaldetxo", "full": "Ugaldetxo (Ereñotzu, Hernani)", "
                 "primary": True}]
 ZONE_DISPLAY = {"Hernani, herrigunea": "Centro (Erdigunea)"}
 
-ROAD_WIDTH = {"Calle": 6.5, "Carretera": 8.0}
+ROAD_WIDTH = {"Calle": 6.5, "Carretera": 8.0, "Camino": 3.0, "Bidegorri": 2.6, "Tren": 8.5}
+# v16: caminos de monte, bidegorris y ferrocarril (extras.py). Las calles y carreteras son los "ROAD_TYPES".
+ROAD_TYPES = ("Calle", "Carretera")
+EXTRAS = {"osm": None, "loose": []}
 # Túneles: la bóveda (exterior) llega a +5.8 m sobre la calzada; el terreno se mantiene >= +6.2 m encima.
 TUNNEL_COVER = 6.2
 TUNNEL_HOLE_HALF = 2.4    # agujeros en el terreno hasta media anchura + 2.4 m (el muro exterior está a +3.5 m)
@@ -281,7 +284,15 @@ def build_roads(pathw_path, bbox, origin, size, sampler, args, nav=None):
     v["geometry"] = v.geometry.intersection(inner)
     v = v[~v.geometry.is_empty].explode(index_parts=False)
     v = v[v.geom_type == "LineString"]
+    v["BRIDGE_TUNNEL"] = v["BRIDGE_TUNNEL"].fillna("0").astype(str)
+    v["WIDTH"] = [ROAD_WIDTH.get(t, 6.5) if not MOTORWAY_RE.match(str(n).strip()) else
+                  (11.0 if not re.match(r"^A-15-\d+", str(n).strip()) else 7.0)
+                  for t, n in zip(v.TYPE_ES.values, v.NAME.values)]
     log(f"Viales tras recorte: {len(v)}")
+    if EXTRAS.get("osm") is not None and not getattr(args, "no_extras", False):
+        import extras
+        v = extras.extra_lines(v, pathw_path, bbox, inner, EXTRAS["osm"], nav, log)
+        log(f"Viales + caminos + bidegorris + tren: {len(v)}")
 
     # nodos por coordenada redondeada (b5m ya viene nodado en cruces)
     G = nx.MultiGraph()
@@ -305,22 +316,42 @@ def build_roads(pathw_path, bbox, origin, size, sampler, args, nav=None):
             struct = 4   # paso inferior: a nivel (sólo sirve de pista en grade_separation; se exporta como 0)
         name = r.NAME.strip()
         rtype = r.TYPE_ES
-        w = ROAD_WIDTH.get(rtype, 6.5)
-        if MOTORWAY_RE.match(name):
-            w = 11.0 if not re.match(r"^A-15-\d+", name) else 7.0
+        w = float(r.WIDTH) if "WIDTH" in r and r.WIDTH == r.WIDTH else ROAD_WIDTH.get(rtype, 6.5)
+        if rtype == "Camino":
+            struct = 0       # los caminos van pegados al terreno (sin puentes ni túneles propios)
         a, b = key(c[0]), key(c[-1])
         if a == b and len(c) < 4:
             continue
         G.add_edge(a, b, coords=c, name=name, type=rtype, width=w, struct=struct, length=r.geometry.length)
 
-    # mayor componente conexa
-    comps = sorted(nx.connected_components(G), key=len, reverse=True)
-    G = G.subgraph(comps[0]).copy()
-    log(f"Grafo: {G.number_of_nodes()} nodos, {G.number_of_edges()} tramos (componente principal)")
+    # mayor componente conexa (sin contar el tren, que es una red aparte: se conserva entera)
+    Gr = nx.MultiGraph()
+    Gr.add_edges_from((a, b, k, d) for a, b, k, d in G.edges(keys=True, data=True) if d["type"] != "Tren")
+    comps = sorted(nx.connected_components(Gr), key=len, reverse=True)
+    keep = set(comps[0])
+    loose = []
+    for a, b, k, d in Gr.edges(keys=True, data=True):
+        if a not in keep and d["type"] in ("Camino", "Bidegorri") and d["length"] >= 15:
+            loose.append({"t": d["type"], "w": d["width"], "c": d["coords"]})
+    EXTRAS["loose"] = loose
+    Gt = nx.MultiGraph()
+    Gt.add_edges_from((a, b, k, d) for a, b, k, d in G.edges(keys=True, data=True) if d["type"] == "Tren")
+    for comp in nx.connected_components(Gt):
+        Ls = sum(d["length"] for _, _, d in Gt.subgraph(comp).edges(data=True))
+        if Ls >= 300:
+            keep |= set(comp)
+    G = G.subgraph(keep).copy()
+    if Gt.number_of_edges():
+        G.remove_edges_from([(a, b, k) for a, b, k, d in list(G.edges(keys=True, data=True))
+                             if d["type"] == "Tren" and a not in Gt and b not in Gt])
+    log(f"Grafo: {G.number_of_nodes()} nodos, {G.number_of_edges()} tramos (componente principal + tren); "
+        f"caminos sueltos sin conexión (sólo dibujo): {len(loose)}")
 
-    # contraer cadenas de grado 2 -> aristas entre cruces/finales
+    # contraer cadenas de grado 2 -> aristas entre cruces/finales (y donde cambia el tipo de vía)
     def is_junction(n):
-        return G.degree(n) != 2
+        if G.degree(n) != 2:
+            return True
+        return len({d["type"] for _, _, d in G.edges(n, data=True)}) > 1
 
     visited = set()
     chains = []
@@ -508,7 +539,11 @@ def build_roads(pathw_path, bbox, origin, size, sampler, args, nav=None):
                     i += 1
         h[0], h[-1] = ha, hb
         # limitador de pendiente (elimina artefactos del MDT en taludes y muros)
-        gmax = 0.24 if e["type"] == "Calle" else 0.12
+        gmax = 0.24 if e["type"] in ("Calle", "Bidegorri") else 0.12
+        if e["type"] == "Camino":
+            gmax = 0.6      # se vuelve a pegar al terreno final tras tallar (ver main)
+        elif e["type"] == "Tren":
+            gmax = 0.04
         if MOTORWAY_RE.match(e["name"]):
             gmax = 0.07
         if L > 1:
@@ -712,6 +747,14 @@ def grade_separation(edges, node_h, clearance=5.5):
     log(f"Huecos cortos entre estructuras convertidos en tablero: {n_gap}")
 
 
+def _rss(tag):
+    try:
+        with open("/proc/self/status") as f_:
+            log(f"  [mem] {tag}: " + next(l for l in f_ if l.startswith("VmRSS")).split(":")[1].strip())
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def carve_terrain(H, cell, edges, rivers):
     """El terreno ES la superficie de rodadura: queda a la cota exacta de la calzada, continuo en los cruces.
 
@@ -734,7 +777,7 @@ def carve_terrain(H, cell, edges, rivers):
         return (np.arange(iz0, iz1 + 1, dtype=np.int64)[:, None] * GX + np.arange(ix0, ix1 + 1)[None, :]).ravel()
 
     out = H.ravel().astype(np.float32).copy()
-    CH = 400_000
+    CH = 120_000   # v16: trozos más pequeños (memoria: el sandbox tiene 2 GB)
 
     def samples(e, keep_fn):
         p = e["xz"]; f = np.array(e["flags"]); s = e["s"]
@@ -773,6 +816,7 @@ def carve_terrain(H, cell, edges, rivers):
         Hh = np.concatenate([r["h"] - 1.2 for r in rivers])
         W = np.concatenate([np.full(len(r["xz"]), r["width"] / 2) for r in rivers])
         lower_pass(P, Hh, W, 0.0, 4.0)
+    _rss("antes de 3)")
     # 3) calzadas a nivel y pasos cubiertos (los puentes y los túneles no tallan: van por encima/debajo)
     rp = [samples(e, lambda fi: (fi != 1) & (fi != 2)) for e in edges]
     P = np.concatenate([r[0] for r in rp]); Hh = np.concatenate([r[1] for r in rp])
@@ -821,11 +865,18 @@ def carve_terrain(H, cell, edges, rivers):
         out[gi] = h0 * (1 - w) + target * w
         road_mask[gi[d0 <= core + 0.5]] = True
         del d, idx, valid, idx_safe, core_k, wk
+    _rss("antes de 4)")
     # 4) suavizado sólo sobre las calzadas (quita aristas de la rejilla en cruces y curvas)
     Hn = out.reshape(H.shape)
     mask = gaussian_filter(road_mask.reshape(H.shape).astype(np.float32), 1.0)
+    del road_mask
     Hs = gaussian_filter(Hn, 0.8)
-    Hn = Hn * (1 - mask) + Hs * mask
+    # en el sitio (memoria): Hn = Hn*(1-mask) + Hs*mask = Hn + (Hs-Hn)*mask
+    Hs -= Hn
+    Hs *= mask
+    Hn += Hs
+    del Hs, mask
+    _rss("tallado 4")
     if os.environ.get("HERNANI_DEBUG"):
         np.save("/tmp/H_after4.npy", Hn)
     # 5) bajo los tableros de puente el terreno nunca asoma (con transición en los estribos)
@@ -842,13 +893,22 @@ def carve_terrain(H, cell, edges, rivers):
         # distancia al apoyo: tramo a nivel contiguo (+2 m) o nodo extremo (+ media anchura + 3 m, que el
         # cruce quede entero a cota); el terreno sólo baja más allá
         nb = si[~isb]
-        d_in = np.full(n, 1e9) if len(nb) == 0 else np.min(np.abs(si[:, None] - nb[None, :]), axis=1) - 2.0
+        if len(nb) == 0:
+            d_in = np.full(n, 1e9)
+        else:   # distancia al no-puente más cercano sin matriz n x m (las vías de tren son tramos de km)
+            j = np.clip(np.searchsorted(nb, si), 1, len(nb) - 1) if len(nb) > 1 else np.zeros(n, int)
+            d_in = np.minimum(np.abs(si - nb[j]), np.abs(si - nb[np.maximum(j - 1, 0)])) - 2.0
         d_end = np.minimum(si, s_[-1] - si) - (e["width"] / 2 + 3.0)
         dend = np.maximum(np.minimum(d_in, d_end), 0.0)
-        k = isb
-        bp_P.append(np.c_[np.interp(si, s_, e["xz"][:, 0]), np.interp(si, s_, e["xz"][:, 1])][k])
-        bp_H.append((np.interp(si, s_, e["h"]) - 1.2 * np.clip(dend / 6.0, 0, 1) - 0.03)[k])
-        bp_W.append(np.full(k.sum(), e["width"] / 2 + 1.6))   # 1.6 m más allá del borde del tablero
+        allP = np.c_[np.interp(si, s_, e["xz"][:, 0]), np.interp(si, s_, e["xz"][:, 1])]
+        allH = np.interp(si, s_, e["h"]) - 1.2 * np.clip(dend / 6.0, 0, 1) - 0.03
+        # cada puente del tramo por separado (un tramo de vía de varios km puede tener varios)
+        ib = np.flatnonzero(isb)
+        for run in np.split(ib, np.flatnonzero(np.diff(ib) > 1) + 1):
+            if len(run) == 0:
+                continue
+            bp_P.append(allP[run]); bp_H.append(allH[run])
+            bp_W.append(np.full(len(run), e["width"] / 2 + 1.6))   # 1.6 m más allá del borde del tablero
     if bp_P:
         P = np.concatenate(bp_P); Hh = np.concatenate(bp_H); W = np.concatenate(bp_W)
         flat = Hn.ravel()
@@ -877,6 +937,7 @@ def carve_terrain(H, cell, edges, rivers):
         Hn = flat.reshape(H.shape)
     if os.environ.get("HERNANI_DEBUG"):
         np.save("/tmp/H_after5.npy", Hn)
+    _rss("antes de 6)")
     # 6) túneles: el monte queda por encima de la bóveda (>= TUNNEL_COVER sobre la calzada) y sólo se abren
     #    agujeros en el terreno donde éste se metería dentro del túnel (en la práctica, en las bocas).
     holes = np.zeros(0, np.int64)
@@ -889,11 +950,17 @@ def carve_terrain(H, cell, edges, rivers):
         ttree, gtree = cKDTree(TP), cKDTree(P_road)
         flat = Hn.ravel().copy()
         rng_t = TW.max() + 3.5 + 6.0
-        tb = box_idx(TP[:, 0].min() - rng_t, TP[:, 1].min() - rng_t, TP[:, 0].max() + rng_t, TP[:, 1].max() + rng_t)
-        d_t, i_t = ttree.query(qc(tb), k=1, distance_upper_bound=rng_t, workers=-1)
-        okt = np.isfinite(d_t)
-        ii = tb[okt]
-        dt, it = d_t[okt], i_t[okt]
+        # v16: una caja por túnel (no la caja de todos: con los del tren cubriría casi todo el mapa)
+        tb = np.unique(np.concatenate([box_idx(t[0][:, 0].min() - rng_t, t[0][:, 1].min() - rng_t,
+                                               t[0][:, 0].max() + rng_t, t[0][:, 1].max() + rng_t) for t in tp]))
+        ii_l, dt_l, it_l = [], [], []
+        for c0 in range(0, len(tb), 1_000_000):
+            tbc = tb[c0:c0 + 1_000_000]
+            d_t, i_t = ttree.query(qc(tbc), k=1, distance_upper_bound=rng_t, workers=-1)
+            okt = np.isfinite(d_t)
+            ii_l.append(tbc[okt]); dt_l.append(d_t[okt]); it_l.append(i_t[okt])
+        ii = np.concatenate(ii_l); dt = np.concatenate(dt_l); it = np.concatenate(it_l)
+        del tb, ii_l, dt_l, it_l
         d_g, i_g = gtree.query(qc(ii), k=1, workers=-1)
         # más cerca del túnel que de cualquier calzada a nivel, y nunca sobre el núcleo de una de ellas
         own = (dt < d_g) & (d_g > W_road[i_g] + 2.5)
@@ -906,11 +973,17 @@ def carve_terrain(H, cell, edges, rivers):
         # celdas (GX-1)*(GZ-1): agujero si la celda es del túnel y su superficie entra en el gálibo
         CX = GX - 1
         rh = TW.max() + TUNNEL_HOLE_HALF
-        cx0, cx1 = max(int((TP[:, 0].min() - rh) / cell) - 1, 0), min(int((TP[:, 0].max() + rh) / cell) + 1, GX - 2)
-        cz0, cz1 = max(int((TP[:, 1].min() - rh) / cell) - 1, 0), min(int((TP[:, 1].max() + rh) / cell) + 1, GZ - 2)
-        cxx, czz = np.meshgrid(np.arange(cx0, cx1 + 1), np.arange(cz0, cz1 + 1))
-        call = (czz.ravel().astype(np.int64) * CX + cxx.ravel())
-        cq = np.c_[(cxx.ravel() + 0.5) * cell, (czz.ravel() + 0.5) * cell]
+        cells = []
+        for t in tp:   # v16: celdas candidatas por túnel
+            P_ = t[0]
+            cx0, cx1 = max(int((P_[:, 0].min() - rh) / cell) - 1, 0), min(int((P_[:, 0].max() + rh) / cell) + 1, GX - 2)
+            cz0, cz1 = max(int((P_[:, 1].min() - rh) / cell) - 1, 0), min(int((P_[:, 1].max() + rh) / cell) + 1, GZ - 2)
+            if cx1 < cx0 or cz1 < cz0:
+                continue
+            cells.append((np.arange(cz0, cz1 + 1, dtype=np.int64)[:, None] * CX + np.arange(cx0, cx1 + 1)[None, :]).ravel())
+        call = np.unique(np.concatenate(cells)) if cells else np.zeros(0, np.int64)
+        del cells
+        cq = np.c_[(call % CX + 0.5) * cell, (call // CX + 0.5) * cell]
         d_t, i_t = ttree.query(cq, k=1, distance_upper_bound=rh, workers=-1)
         sel = np.where(np.isfinite(d_t))[0]
         sel = sel[d_t[sel] <= TW[i_t[sel]] + TUNNEL_HOLE_HALF]
@@ -1152,6 +1225,7 @@ def build_buildings(bu_path, bbox, origin, size, Hs, edges, nav=None):
         if not okt or not tri_idx:
             continue
         name = (r.NAME_BUILDING_ES or r.NAME_BUILDING_EU or "") if "NAME_BUILDING_ES" in r else ""
+        name_eu = (r.NAME_BUILDING_EU or "") if "NAME_BUILDING_EU" in r else ""
         addr = r.NAME or ""
         out.append({
             "v": [rnd(c, 2) for xy in loc for c in xy],
@@ -1164,6 +1238,7 @@ def build_buildings(bu_path, bbox, origin, size, Hs, edges, nav=None):
             "n": (name or "").strip(),
             "a": addr.strip(),
             "y": int(r.DATE_CONSTRUCTION) if str(r.DATE_CONSTRUCTION).isdigit() else 0,
+            "_eu": (name_eu or "").strip(),
         })
     log(f"Edificios exportados: {len(out)} (soportales: {arcades}, descartados sobre calzada: {dropped})")
     return out
@@ -1221,7 +1296,9 @@ def build_trees(H, cell, edges, buildings, rivers, seed=7):
     rng = np.random.default_rng(seed)
     GZ, GX = H.shape
     sx, sz = (GX - 1) * cell, (GZ - 1) * cell
-    road_pts = np.concatenate([e["xz"] for e in edges])
+    big = [e for e in edges if e["type"] not in ("Camino", "Bidegorri")]
+    small = [e for e in edges if e["type"] in ("Camino", "Bidegorri")]
+    road_pts = np.concatenate([e["xz"] for e in big])
     rtree = cKDTree(road_pts)
     bpts = []
     for b in buildings:
@@ -1236,6 +1313,10 @@ def build_trees(H, cell, edges, buildings, rivers, seed=7):
     P = np.c_[gx.ravel(), gz.ravel()] + rng.uniform(-step * 0.45, step * 0.45, (gx.size, 2))
     P = P[(P[:, 0] > 2) & (P[:, 0] < sx - 2) & (P[:, 1] > 2) & (P[:, 1] < sz - 2)]
     dr, _ = rtree.query(P, distance_upper_bound=60)
+    if small:
+        sp = np.concatenate([e["xz"] for e in small])
+        ds, _ = cKDTree(sp).query(P, distance_upper_bound=60)
+        dr = np.minimum(dr, ds + 5.0)          # junto a los caminos basta con 4 m libres
     db, _ = btree.query(P, distance_upper_bound=60)
     dw, _ = wtree.query(P, distance_upper_bound=60)
     gy, gxg = np.gradient(H, cell)
@@ -1383,6 +1464,7 @@ def main():
     ap.add_argument("--no-motorways", action="store_true", help="Excluir A-15/AP-1/AP-8")
     ap.add_argument("--out", default=DEFAULT_OUT)
     ap.add_argument("--no-osm", action="store_true", help="No añadir sentidos/semáforos/señales de OpenStreetMap")
+    ap.add_argument("--no-extras", action="store_true", help="Sin caminos de monte, bidegorris, tren ni toponimia v16")
     ap.add_argument("--no-navarra", action="store_true", help="No completar la parte de Navarra con los datos de IDENA (SITNA)")
     args = ap.parse_args()
 
@@ -1405,6 +1487,13 @@ def main():
         f" a {cell} m, {cx_n // TILE_CELLS} x {cz_n // TILE_CELLS} teselas de {TILE_CELLS * cell:.0f} m)")
 
     paths = {k: cached_download(k, u) for k, u in B5M_DATASETS.items()}
+    if not args.no_extras:
+        import extras
+        try:
+            EXTRAS["osm"] = extras.load_osm(CACHE, bbox, log)
+        except Exception as ex:  # noqa: BLE001
+            log(f"AVISO: sin caminos/bidegorris de OpenStreetMap ({ex}); sólo los de b5m")
+            EXTRAS["osm"] = {"elements": []}
     nav = None
     if not args.no_navarra:
         try:
@@ -1417,15 +1506,59 @@ def main():
 
     node_list, node_xy, node_h, edges = build_roads(paths["pathw"], bbox, origin, None, Hs_raw, args, nav)
     rivers = build_rivers(paths["hyd"], bbox, origin, Hs_raw, nav)
-    grade_separation(edges, node_h)
+    # memoria (2 GB): los datos de OSM de la v16 se sueltan antes de tallar y se vuelven a leer después
+    EXTRAS["osm"] = None
+    import gc
+    gc.collect()
+    try:
+        with open("/proc/self/status") as f_:
+            log("Memoria antes de tallar: " + next(l for l in f_ if l.startswith("VmRSS")).split(":")[1].strip())
+    except Exception:  # noqa: BLE001
+        pass
+    carve_e = [e for e in edges if e["type"] != "Camino"]
+    road_e = [e for e in edges if e["type"] in ROAD_TYPES]
+    grade_separation(carve_e, node_h)
     log("Tallando calles y cauces en el terreno...")
-    Hc, holes = carve_terrain(H, cell, edges, rivers)
+    Hc, holes = carve_terrain(H, cell, carve_e, rivers)
     del H
     Hs = HeightSampler(Hc, cell)
-    buildings = build_buildings(paths["bu"], bbox, origin, None, Hs, edges, nav)
+    # los caminos no tallan: se pegan al terreno final (incluido el tallado de las calles con las que empalman)
+    road_nodes = {n for e in edges if e["type"] != "Camino" for n in (e["a"], e["b"])}
+    for e in edges:
+        if e["type"] != "Camino":
+            continue
+        h = Hs(e["xz"][:, 0], e["xz"][:, 1]).astype(np.float64)
+        if len(h) > 4:
+            h[1:-1] = (h[:-2] + 2 * h[1:-1] + h[2:]) / 4
+        for ni, k in ((e["a"], 0), (e["b"], -1)):
+            if ni in road_nodes:
+                h[k] = node_h[ni]
+            else:
+                node_h[ni] = h[k]
+        e["h"] = h
+    buildings = build_buildings(paths["bu"], bbox, origin, None, Hs, road_e, nav)
     zones, landmarks = build_places(paths["topon"], bbox, origin, Hs, nav)
     trees = build_trees(Hc, cell, edges, buildings, rivers)
-    presets = check_presets(node_xy, edges, origin)
+    presets = check_presets(node_xy, road_e, origin)
+    extra_scn = {}
+    if not args.no_extras:
+        import extras
+        try:
+            osm = extras.load_osm(CACHE, bbox, log)
+        except Exception:  # noqa: BLE001
+            osm = {"elements": []}
+        extras.building_names(paths["topon"], bbox, origin, buildings, osm, road_e + [e for e in edges if e["type"] == "Camino"], Hs, log)
+        extra_scn["peaks"] = extras.peaks(paths["topon"], bbox, origin, Hs, osm, landmarks, log)
+        extra_scn["stations"] = extras.stations(osm, origin)
+        try:
+            extra_scn["areas"] = extras.admin_areas(CACHE, bbox, origin, log)
+        except Exception as ex:  # noqa: BLE001
+            log(f"AVISO: sin términos municipales de OSM ({ex})")
+            extra_scn["areas"] = []
+        extra_scn["loose"] = [{"t": l["t"], "w": l["w"],
+                               "p": [rnd(v) for x, z in l["c"] for v in (x - origin[0], float(Hs(x - origin[0], z - origin[1])[0]), z - origin[1])]}
+                              for l in EXTRAS["loose"]]
+        log(f"Estaciones: {', '.join(s['name'] for s in extra_scn['stations'])}; caminos sueltos: {len(extra_scn['loose'])}")
 
     os.makedirs(args.out, exist_ok=True)
     # heightmap: uint16 LE, filas de sur a norte, columnas de oeste a este
@@ -1468,10 +1601,12 @@ def main():
         # holes: celdas del terreno (índice z*(gridX-1)+x) abiertas en las bocas de los túneles
         json.dump({"nodes": nodes_json, "edges": edges_json, "holes": [int(v) for v in holes]},
                   f, ensure_ascii=False, separators=(",", ":"))
+    for b in buildings:
+        b.pop("_eu", None)
     with open(os.path.join(args.out, "buildings.json"), "w", encoding="utf8") as f:
         json.dump({"buildings": buildings}, f, ensure_ascii=False, separators=(",", ":"))
     with open(os.path.join(args.out, "scenery.json"), "w", encoding="utf8") as f:
-        json.dump({"zones": zones, "landmarks": landmarks, "rivers": rivers_json, "trees": trees},
+        json.dump({"zones": zones, "landmarks": landmarks, "rivers": rivers_json, "trees": trees, **extra_scn},
                   f, ensure_ascii=False, separators=(",", ":"))
     if not args.no_osm:
         try:

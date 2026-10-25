@@ -181,6 +181,10 @@ def augment(roads, osm, origin_e, origin_n):
     polys = [polyline(e) for e in edges]
     stats = {"ow": 0, "rb": 0, "matched": 0}
     for ei, e in enumerate(edges):
+        if e.get("type") not in ("Calle", "Carretera"):
+            # v16: caminos, bidegorris y tren no tienen sentido único, carriles ni rotondas
+            e["ow"], e["lanes"], e["rb"] = 0, 1, 0
+            continue
         xz = polys[ei]
         samples, L = sample_along(xz, 4.0)
         # se evitan los extremos (zona de cruce) salvo en tramos cortos
@@ -230,7 +234,8 @@ def augment(roads, osm, origin_e, origin_n):
     ntree = cKDTree(node_xy)
     deg = np.zeros(len(nodes), int)
     for e in edges:
-        deg[e["a"]] += 1; deg[e["b"]] += 1
+        if e.get("type") in ("Calle", "Carretera"):
+            deg[e["a"]] += 1; deg[e["b"]] += 1
     # tramos por proximidad (muestras cada 3 m)
     smp, smp_e = [], []
     for ei, xz in enumerate(polys):
@@ -244,6 +249,8 @@ def augment(roads, osm, origin_e, origin_n):
         best = None
         for k in etree.query_ball_point(p, rmax + 3):
             ei = smp_e[k]
+            if edges[ei].get("type") not in ("Calle", "Carretera"):
+                continue
             s, dist, L = project_s(polys[ei], p)
             if dist <= rmax and (best is None or dist < best[1]):
                 best = (ei, dist, s, L)

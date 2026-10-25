@@ -47,7 +47,8 @@ namespace HernaniRacing
         public static bool ResetPressed { get { return KD(Key.R) || (Pad != null && Pad.buttonNorth.wasPressedThisFrame); } }
         public static bool CameraPressed { get { return KD(Key.C) || (Pad != null && Pad.buttonWest.wasPressedThisFrame); } }
         public static bool PausePressed { get { return KD(Key.Escape) || KD(Key.P) || (Pad != null && Pad.startButton.wasPressedThisFrame); } }
-        public static bool MapPressed { get { return KD(Key.M); } }
+        public static bool MapPressed { get { return KD(Key.Tab); } }
+        public static bool MicPressed { get { return KD(Key.M); } }
         public static bool RearView { get { return K(Key.B) || (Pad != null && Pad.leftShoulder.isPressed); } }
         public static bool MapZoomPressed { get { return KD(Key.N) || (Pad != null && Pad.dpad.up.wasPressedThisFrame); } }
         public static bool ArrowsPressed { get { return KD(Key.F) || (Pad != null && Pad.dpad.down.wasPressedThisFrame); } }
@@ -78,7 +79,8 @@ namespace HernaniRacing
         public static bool ResetPressed { get { return Input.GetKeyDown(KeyCode.R) || Input.GetKeyDown(KeyCode.JoystickButton3); } }
         public static bool CameraPressed { get { return Input.GetKeyDown(KeyCode.C); } }
         public static bool PausePressed { get { return Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.P) || Input.GetKeyDown(KeyCode.JoystickButton7); } }
-        public static bool MapPressed { get { return Input.GetKeyDown(KeyCode.M); } }
+        public static bool MapPressed { get { return Input.GetKeyDown(KeyCode.Tab); } }
+        public static bool MicPressed { get { return Input.GetKeyDown(KeyCode.M); } }
         public static bool RearView { get { return Input.GetKey(KeyCode.B) || Input.GetKey(KeyCode.JoystickButton4); } }
         public static bool MapZoomPressed { get { return Input.GetKeyDown(KeyCode.N) || Input.GetKeyDown(KeyCode.JoystickButton6); } }
         public static bool ArrowsPressed { get { return Input.GetKeyDown(KeyCode.F); } }

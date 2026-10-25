@@ -185,6 +185,7 @@ namespace HernaniRacing
             var g = world.graph;
             float d;
             curEdge = g.NearestEdge(p, 14f, out d);
+            curAny = g.NearestEdge(p, 14f, out d, Toponymy.AllKinds);   // también caminos, bidegorris y vías
 
             // sentido contrario en calle de sentido único (fuera de los cruces)
             bool wrong = false;
@@ -233,6 +234,9 @@ namespace HernaniRacing
         }
 
         static float Sq(float x) { return x * x; }
+        int curAny = -1;
+        Toponymy topo; World topoWorld;
+        readonly System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<Vector3, Vector3>> trainHeads = new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<Vector3, Vector3>>();
 
         static float ProjectS(RoadEdge e, Vector3 p)
         {
@@ -278,30 +282,41 @@ namespace HernaniRacing
             var g = world.graph;
             Vector3 p = car.transform.position;
 
-            // calle y barrio
-            string street = curEdge >= 0 ? g.edges[curEdge].name : "Fuera de la red viaria";
-            string extra = "";
-            if (curEdge >= 0)
+            // v16: calle (o camino / bidegorri / vía), barrio, monte, pueblo y provincia
+            if (topo == null || topoWorld != world) { topo = new Toponymy(world); topoWorld = world; }
+            int hudEdge = curEdge >= 0 ? curEdge : curAny;
+            if (curAny >= 0 && curEdge >= 0 && curAny != curEdge && !g.edges[curAny].IsRoad)
             {
-                var e = g.edges[curEdge];
-                if (e.roundabout) extra = "Rotonda";
+                float dr, da;
+                g.NearestEdge(p, 14f, out dr); g.NearestEdge(p, 14f, out da, Toponymy.AllKinds);
+                if (da < dr - 1f) hudEdge = curAny;     // claramente sobre el camino y no sobre la calle
+            }
+            var place = topo.At(p, hudEdge);
+            string extra = "";
+            if (hudEdge >= 0)
+            {
+                var e = g.edges[hudEdge];
+                if (!e.IsRoad) extra = e.kind == RoadEdge.KindPath ? "Sólo peatones (y algún Land Rover)" : e.kind == RoadEdge.KindBike ? "Bicis y peatones" : "Cuidado: pasa el tren";
+                else if (e.roundabout) extra = "Rotonda";
                 else if (e.OneWay) extra = "Sentido único";
                 else extra = "Doble sentido";
-                if (e.lanes > 1) extra += " · " + e.lanes + " carriles";
+                if (e.IsRoad && e.lanes > 1) extra += " · " + e.lanes + " carriles";
             }
-            var zone = world.ZoneAt(p);
-            float gw = 600;
-            GUI.Box(new Rect(W / 2 - gw / 2, 20, gw, 96), GUIContent.none, box);
-            GUI.Label(new Rect(W / 2 - gw / 2, 24, gw, 36), street, mid);
-            GUI.Label(new Rect(W / 2 - gw / 2, 58, gw, 26), (zone != null ? zone.name : "Hernani") + " · Hernani (Gipuzkoa)", label);
+            float gw = 640;
+            bool hasMonte = !string.IsNullOrEmpty(place.monte);
+            GUI.Box(new Rect(W / 2 - gw / 2, 20, gw, hasMonte ? 122 : 96), GUIContent.none, box);
+            GUI.Label(new Rect(W / 2 - gw / 2, 24, gw, 36), place.street, mid);
+            GUI.Label(new Rect(W / 2 - gw / 2, 58, gw, 26), place.Line2(), label);
             var utm = world.data.ToUTM(p);
             var sm = new GUIStyle(small) { alignment = TextAnchor.MiddleCenter };
             GUI.Label(new Rect(W / 2 - gw / 2, 86, gw, 24), extra + " · Altitud " + p.y.ToString("F0") + " m · UTM " + utm.x.ToString("F0") + " / " + utm.y.ToString("F0"), sm);
+            if (hasMonte)
+                GUI.Label(new Rect(W / 2 - gw / 2, 110, gw, 24), "Monte " + place.monte + (place.monteDist > 80f ? "  (cima a " + (place.monteDist >= 1000f ? (place.monteDist / 1000f).ToString("F1") + " km" : (Mathf.Round(place.monteDist / 10f) * 10f).ToString("F0") + " m") + ")" : "  (en la cima)"), sm);
 
             // velocímetro de aguja + digital
             float kmh = Mathf.Abs(car.ForwardSpeed) * 3.6f;
             Speedometer.Draw(new Rect(W - 300, H - 300, 280, 280), kmh, car.maxSpeed * 3.6f, car.Reversing && car.ForwardSpeed < -0.5f);
-            float lim = curEdge >= 0 ? (g.edges[curEdge].width >= 10f ? 120f : (g.edges[curEdge].type == "Carretera" ? 50f : 30f)) : 0f;
+            float lim = hudEdge >= 0 && !g.edges[hudEdge].IsRoad ? 20f : curEdge >= 0 ? (g.edges[curEdge].width >= 10f ? 120f : (g.edges[curEdge].type == "Carretera" ? 50f : 30f)) : 0f;
             if (lim > 0)
             {
                 GUI.Box(new Rect(W - 300, H - 340, 280, 34), GUIContent.none, box);
@@ -327,13 +342,18 @@ namespace HernaniRacing
                     float ts = MapView.MarkerSize(span, 9, 3);
                     foreach (var tc in traffic.cars) if (tc != null) map.Marker(tc.transform.position, tc.transform.forward, new Color(0.85f, 0.85f, 0.9f), false, ts);
                 }
+                if (world.trains != null)
+                {
+                    world.trains.Heads(trainHeads);       // v16: trenes en el plano (morado)
+                    foreach (var th in trainHeads) map.Marker(th.Key, th.Value, new Color(0.7f, 0.25f, 0.9f), false, MapView.MarkerSize(span, 16, 7));
+                }
                 if (world.signals != null && span <= 1000f)
                     foreach (var j in world.signals.Junctions) map.Marker(g.nodes[j.node], Vector3.forward, new Color(1f, 0.6f, 0.1f), false, MapView.MarkerSize(span, 8, 4));
                 if (sync != null)
                     foreach (var nc in sync.cars.Values)
                         if (nc.Remote && !nc.gone && nc.car != null) map.Marker(nc.car.transform.position, nc.car.transform.forward, nc.color, false, MapView.MarkerSize(span, 15, 10));
                 map.Marker(p, car.transform.forward, settings.paint, true, MapView.MarkerSize(span, 26, 16));
-                GUI.Label(new Rect(mr.x, mr.yMax + 4, ms, 22), "Zoom " + MapView.ZoomLabel(span) + " · N zoom · M ocultar", small);
+                GUI.Label(new Rect(mr.x, mr.yMax + 4, ms, 22), "Zoom " + MapView.ZoomLabel(span) + " · N zoom · Tab ocultar", small);
             }
 
             if (wrongWay)
@@ -353,7 +373,7 @@ namespace HernaniRacing
                 GUI.Box(new Rect(W / 2 - 140, H - 120, 280, 40), GUIContent.none, box);
                 GUI.Label(new Rect(W / 2 - 140, H - 120, 280, 40), "VISTA TRASERA", mid);
             }
-            GUI.Label(new Rect(20, H - 34, 1400, 26), "W/S acelerar/frenar · A/D girar · Espacio freno de mano · R recolocar · C cámara · B mirar atrás · M mapa · N zoom mapa · O suelo · Esc menú", small);
+            GUI.Label(new Rect(20, H - 34, 1400, 26), "W/S acelerar/frenar · A/D girar · Espacio freno de mano · R recolocar · C cámara · B mirar atrás · Tab mapa · N zoom mapa · O suelo" + (online ? " · M micrófono" : "") + " · Esc menú", small);
 
             if (car != null) PenaltyHud.Draw(W, H, car);
             if (paused)

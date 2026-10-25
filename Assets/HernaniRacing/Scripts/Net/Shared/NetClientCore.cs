@@ -50,6 +50,9 @@ namespace HernaniRacing.Net
         public event Action Disconnected;
         public delegate void RelayHandler(byte from, RelayKind kind, double time, int count, NetDataReader r);
         public event RelayHandler RelayReceived;
+        /// <summary>v3: voz de otro jugador (datos desde 'offset', 'count' bytes).</summary>
+        public delegate void VoiceHandler(byte from, byte[] data, int offset, int count);
+        public event VoiceHandler VoiceReceived;
 
         public NetClientCore() : this(new UdpTransport()) { }
 
@@ -177,6 +180,15 @@ namespace HernaniRacing.Net
 
         public int MaxUnreliable { get { return linked ? transport.MaxUnreliable : 500; } }
 
+        readonly NetDataWriter vw = new NetDataWriter();
+        /// <summary>v3: manda un trozo de voz a la sala (no fiable).</summary>
+        public void SendVoice(byte[] data, int count)
+        {
+            if (!linked || State != ClientState.Connected || !InRoom || count > NetProto.VoiceMaxPacket) return;
+            vw.Reset(); vw.Put((byte)Msg.Voice); vw.Put(data, 0, count);
+            transport.Send(vw, NetProto.ChVoice, false);
+        }
+
         // ------------------------------------------------------------------ eventos del transporte
         void OnClosed(CloseKind kind, string serverText, string detail)
         {
@@ -279,6 +291,12 @@ namespace HernaniRacing.Net
                     case Msg.Info:
                         InfoReceived?.Invoke(r.GetString(300));
                         break;
+                    case Msg.VoiceFrom:
+                        {
+                            byte from = r.GetByte();
+                            VoiceReceived?.Invoke(from, r.RawData, r.Position, r.AvailableBytes);
+                            break;
+                        }
                     case Msg.RelayFrom:
                         {
                             byte from = r.GetByte();

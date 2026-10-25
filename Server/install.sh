@@ -117,7 +117,12 @@ echo " Servidor instalado y en marcha."
 echo "   Dirección para el juego:  $IP"
 echo "   Puerto UDP:               $PORT"
 if [ "$WEBPORT" != "0" ]; then
+if grep -q '"tlsCert"[^"]*"[^"]' $CFG; then
+echo "   Versión web (navegador):  https://NOMBRE-DEL-CERTIFICADO:$WEBPORT   (http redirige a https)"
+else
 echo "   Versión web (navegador):  http://$IP:$WEBPORT   (puerto TCP $WEBPORT)"
+echo "     -> para el chat de voz en el navegador hace falta https:  sudo ./install-https.sh tu.dominio.com"
+fi
 if [ ! -f $WEB_DIR/index.html ]; then
 echo "     -> aún sin juego web: haz el build WebGL en Unity y ejecuta"
 echo "        sudo ./install-web.sh carpeta-o-zip-del-build"

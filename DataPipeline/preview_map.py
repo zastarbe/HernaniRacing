@@ -72,8 +72,9 @@ def main():
     bld, scen = load(a.data, "buildings.json"), load(a.data, "scenery.json")
     nodes, edges = roads["nodes"], roads["edges"]
     adj = [[] for _ in nodes]
+    ROAD = ("Calle", "Carretera")
     for i, e in enumerate(edges):
-        if e["a"] != e["b"]:
+        if e["a"] != e["b"] and e["type"] in ROAD:   # los circuitos sólo van por calles y carreteras
             adj[e["a"]].append(i)
             adj[e["b"]].append(i)
     xy = np.array([[n["x"], n["z"]] for n in nodes])
@@ -91,10 +92,26 @@ def main():
         v = np.array(b["v"]).reshape(-1, 2)
         if len(v) > 2:
             ax.fill(v[:, 0], v[:, 1], color="#c9b8a6", lw=0, zorder=2)
+    # v16: caminos (marrón), bidegorris (rojo), tren (gris oscuro discontinuo)
+    sty = {"Calle": dict(color="#ffffff", lw=1.0, zorder=3), "Carretera": dict(color="#f6c86b", lw=1.8, zorder=3),
+           "Camino": dict(color="#9a6a3a", lw=0.6, zorder=2.5), "Bidegorri": dict(color="#e0303a", lw=1.3, zorder=3.2),
+           "Tren": dict(color="#303030", lw=1.8, zorder=3.4, linestyle=(0, (4, 2)))}
     for e in edges:
         p = np.array(e["p"]).reshape(-1, 3)
-        ax.plot(p[:, 0], p[:, 2], color="#ffffff" if e["type"] == "Calle" else "#f6c86b",
-                lw=1.0 if e["type"] == "Calle" else 1.8, zorder=3)
+        ax.plot(p[:, 0], p[:, 2], **sty.get(e["type"], sty["Calle"]))
+    for l in scen.get("loose", []):
+        p = np.array(l["p"]).reshape(-1, 3)
+        ax.plot(p[:, 0], p[:, 2], **sty.get(l["t"], sty["Camino"]))
+    for pk in scen.get("peaks", []):
+        ax.scatter([pk["x"]], [pk["z"]], marker="^", s=22, color="#5b3b1a", zorder=7)
+        ax.annotate(pk["name"], (pk["x"], pk["z"]), xytext=(3, -8), textcoords="offset points", fontsize=6, color="#5b3b1a", zorder=7)
+    for st in scen.get("stations", []):
+        ax.scatter([st["x"]], [st["z"]], marker="s", s=50, color="#8e2bd0", edgecolor="k", zorder=8)
+        ax.annotate("Estación " + st["name"], (st["x"], st["z"]), xytext=(5, 3), textcoords="offset points", fontsize=8,
+                    weight="bold", color="#5a1a8a", zorder=8)
+    from matplotlib.lines import Line2D
+    extra_legend = [Line2D([0], [0], **{k: v for k, v in sty[t].items() if k != "zorder"}, label=n) for t, n in
+                    (("Carretera", "Carretera"), ("Calle", "Calle"), ("Camino", "Camino de monte"), ("Bidegorri", "Bidegorri"), ("Tren", "Vía del tren"))]
     colors = ["#d62728", "#1f77b4", "#2ca02c", "#9467bd", "#ff7f0e", "#17becf", "#e377c2", "#8c564b"]
     for k, pr in enumerate(meta.get("presets", [])):
         if a.only is not None and k not in a.only:
@@ -118,8 +135,9 @@ def main():
     ax.set_xlim(vx0, vx1)
     ax.set_ylim(vz0, vz1)
     ax.set_aspect("equal")
-    ax.set_title("Hernani Racing - red viaria b5m y circuitos predefinidos")
-    ax.legend(loc="upper right", fontsize=10)
+    ax.set_title("Hernani Racing - red viaria (b5m, SITNA, OSM), caminos, bidegorris, tren y circuitos predefinidos")
+    h, _ = ax.get_legend_handles_labels()
+    ax.legend(handles=h + extra_legend, loc="upper right", fontsize=9, facecolor="#dddddd")
     ax.set_xlabel(f"x (m) desde E={meta['originE']:.0f}")
     ax.set_ylabel(f"z (m) desde N={meta['originN']:.0f}")
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)

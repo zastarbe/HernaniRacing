@@ -31,6 +31,12 @@ namespace HernaniRacing.Server
         public string dataFile = "";
         public int maxCircuits = 500;
         public int maxCircuitsPerPlayer = 40;
+        /// <summary>v16: la versión web servida por este servidor entra sin contraseña (la página ya es "la llave").</summary>
+        public bool webTrustOwnPage = true;
+        /// <summary>v16: https en el puerto web: certificado y clave en PEM (p. ej. los de Let's Encrypt).
+        /// Vacío = sólo http. Con certificado, las peticiones http al mismo puerto se redirigen a https.</summary>
+        public string tlsCert = "";
+        public string tlsKey = "";
     }
 
     class Player
@@ -45,6 +51,8 @@ namespace HernaniRacing.Server
         public long joinedSeq;
         public double lastRelay;
         public int relayCount;
+        public double lastVoice;
+        public int voiceCount;
         public int reportedSerial = -1;    // carrera de la que ya ha mandado su resultado
         public double lastSave;
     }
@@ -131,7 +139,7 @@ namespace HernaniRacing.Server
 
         // ------------------------------------------------------------------ conexiones
         /// <summary>Comprueba los datos de conexión: null si puede entrar, o el motivo del rechazo.</summary>
-        string Check(NetDataReader data, out ConnectInfo info)
+        string Check(NetDataReader data, out ConnectInfo info, bool trusted = false)
         {
             info = null;
             try { info = ConnectInfo.Read(data); }
@@ -141,7 +149,8 @@ namespace HernaniRacing.Server
                 return info.version < NetProto.Version
                     ? "Tu juego es más antiguo que el servidor. Actualiza el juego."
                     : "El servidor es más antiguo que tu juego. Hay que actualizar el servidor.";
-            if (!string.IsNullOrEmpty(cfg.password) && info.password != cfg.password) return "Contraseña del servidor incorrecta.";
+            if (!string.IsNullOrEmpty(cfg.password) && info.password != cfg.password && !(trusted && cfg.webTrustOwnPage))
+                return "Contraseña del servidor incorrecta.";
             if (players.Count >= cfg.maxPlayers) return "El servidor está lleno.";
             return null;
         }
@@ -210,7 +219,7 @@ namespace HernaniRacing.Server
                     if (d[0] != NetProto.WsHello) { c.Abort(); continue; }
                     wsReader.SetSource(d, 1, d.Length);
                     ConnectInfo info;
-                    string why = Check(wsReader, out info);
+                    string why = Check(wsReader, out info, c.ownPage);
                     byte id = why == null ? FreeId() : (byte)0;
                     if (why == null && id == 0) why = "El servidor está lleno.";
                     if (why != null) { Log($"[{Stamp()}] x rechazado {c.Remote} (web): {why}"); c.Reject(why); continue; }
@@ -322,6 +331,7 @@ namespace HernaniRacing.Server
                         if (p.room != null && p.room.leader == p && p.room.phase != RoomPhase.Lobby) EndGame(p.room, "el líder ha vuelto a la sala");
                         break;
                     case Msg.Relay: Relay(p, r); break;
+                    case Msg.Voice: Voice(p, r); break;
                     case Msg.ListCircuits: SendCircuitList(p); break;
                     case Msg.SaveCircuit: SaveCircuit(p, r); break;
                     case Msg.RaceResult: RaceResult(p, r); break;
@@ -618,6 +628,24 @@ namespace HernaniRacing.Server
             byte ch = kind == RelayKind.Cars ? NetProto.ChCars : (kind == RelayKind.Traffic ? NetProto.ChTraffic : NetProto.ChPeds);
             foreach (var x in room.players)
                 if (x != p && x.inGame) x.conn.Send(relay, ch, false);
+        }
+
+        /// <summary>v3: chat de voz. Se reenvía tal cual a toda la sala (mismo volumen para todos).</summary>
+        void Voice(Player p, NetDataReader r)
+        {
+            var room = p.room;
+            if (room == null) return;
+            int n = r.AvailableBytes;
+            if (n < 3 || n > NetProto.VoiceMaxPacket) return;
+            double now = Now;
+            if (now - p.lastVoice > 1.0) { p.lastVoice = now; p.voiceCount = 0; }
+            if (++p.voiceCount > 40) return;        // 25 trozos por segundo + margen
+            relay.Reset();
+            relay.Put((byte)Msg.VoiceFrom);
+            relay.Put(p.id);
+            relay.Put(r.RawData, r.Position, n);
+            foreach (var x in room.players)
+                if (x != p) x.conn.Send(relay, NetProto.ChVoice, false);
         }
 
         public string Status()

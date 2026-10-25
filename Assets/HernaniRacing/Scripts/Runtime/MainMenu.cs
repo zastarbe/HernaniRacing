@@ -352,8 +352,9 @@ namespace HernaniRacing
         };
         static readonly string[][] KeysView =
         {
-            new[] { "C", "Cambiar de cámara" }, new[] { "B", "Mirar atrás" }, new[] { "M", "Mapa: ver / ocultar" },
-            new[] { "N", "Zoom del mapa" }, new[] { "F", "Flechas de guía (carrera)" }, new[] { "O", "Suelo: colores / foto aérea" }
+            new[] { "C", "Cambiar de cámara" }, new[] { "B", "Mirar atrás" }, new[] { "Tab", "Mapa: ver / ocultar" },
+            new[] { "N", "Zoom del mapa" }, new[] { "F", "Flechas de guía (carrera)" }, new[] { "O", "Suelo: colores / foto aérea" },
+            new[] { "M", "Micrófono on/off (online)" }
         };
         static readonly string[][] KeysMap =
         {

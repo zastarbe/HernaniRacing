@@ -15,6 +15,14 @@ namespace HernaniRacing
         public int ow;        // 0 doble sentido, 1 sólo a->b, -1 sólo b->a (OpenStreetMap)
         public int lanes = 1; // carriles por sentido
         public bool roundabout;
+        /// <summary>v16: 0 calle o carretera, 1 camino de monte / pista, 2 bidegorri, 3 vía de tren.</summary>
+        public int kind;
+        public bool IsRoad { get { return kind == KindRoad; } }
+        public const int KindRoad = 0, KindPath = 1, KindBike = 2, KindRail = 3;
+        public static int KindOf(string type)
+        {
+            switch (type) { case "Camino": return KindPath; case "Bidegorri": return KindBike; case "Tren": return KindRail; default: return KindRoad; }
+        }
 
         /// <summary>¿Se puede circular por la arista saliendo del nodo 'node'?</summary>
         public bool AllowsFrom(int node) { return ow == 0 || (ow == 1 ? node == a : node == b); }
@@ -54,7 +62,10 @@ namespace HernaniRacing
     {
         public Vector3[] nodes;
         public RoadEdge[] edges;
-        public List<int>[] adj;           // índices de arista por nodo
+        /// <summary>Índices de arista por nodo: SÓLO calles y carreteras (circuitos, tráfico, cruces, mobiliario...).</summary>
+        public List<int>[] adj;
+        /// <summary>v16: todas las aristas por nodo (también caminos, bidegorris y tren).</summary>
+        public List<int>[] adjAll;
         public bool[] isJunction;
         public List<int> junctions = new List<int>();
         public int[] nodeSignal;                                   // 0, 1 semáforos, 2 rotonda
@@ -70,7 +81,8 @@ namespace HernaniRacing
             nodes = data.nodes.Select(n => new Vector3(n.x, n.y, n.z)).ToArray();
             edges = new RoadEdge[data.edges.Length];
             adj = new List<int>[nodes.Length];
-            for (int i = 0; i < nodes.Length; i++) adj[i] = new List<int>();
+            adjAll = new List<int>[nodes.Length];
+            for (int i = 0; i < nodes.Length; i++) { adj[i] = new List<int>(); adjAll[i] = new List<int>(); }
             for (int i = 0; i < data.edges.Length; i++)
             {
                 var e = data.edges[i];
@@ -78,7 +90,8 @@ namespace HernaniRacing
                 var re = new RoadEdge
                 {
                     index = i, a = e.a, b = e.b, name = string.IsNullOrEmpty(e.name) ? "Calle sin nombre" : e.name,
-                    type = e.type, width = e.width, pts = new Vector3[n], flags = new int[n], cum = new float[n]
+                    type = e.type, width = e.width, pts = new Vector3[n], flags = new int[n], cum = new float[n],
+                    kind = RoadEdge.KindOf(e.type)
                 };
                 for (int k = 0; k < n; k++)
                 {
@@ -91,8 +104,9 @@ namespace HernaniRacing
                 edges[i] = re;
                 if (re.a != re.b)
                 {
-                    adj[re.a].Add(i);
-                    adj[re.b].Add(i);
+                    adjAll[re.a].Add(i);
+                    adjAll[re.b].Add(i);
+                    if (re.IsRoad) { adj[re.a].Add(i); adj[re.b].Add(i); }
                 }
                 for (int k = 0; k < n; k++)
                 {
@@ -128,8 +142,11 @@ namespace HernaniRacing
             return (ix << 32) ^ (iz & 0xffffffffL);
         }
 
-        /// <summary>Arista más cercana a un punto (devuelve -1 si no hay ninguna a menos de maxDist).</summary>
-        public int NearestEdge(Vector3 p, float maxDist, out float dist)
+        /// <summary>Calle o carretera más cercana a un punto (devuelve -1 si no hay ninguna a menos de maxDist).</summary>
+        public int NearestEdge(Vector3 p, float maxDist, out float dist) { return NearestEdge(p, maxDist, out dist, 1 << RoadEdge.KindRoad); }
+
+        /// <summary>Arista más cercana de los tipos de 'kindMask' (bit 1 &lt;&lt; kind).</summary>
+        public int NearestEdge(Vector3 p, float maxDist, out float dist, int kindMask)
         {
             dist = float.MaxValue;
             int best = -1;
@@ -144,6 +161,7 @@ namespace HernaniRacing
                     foreach (int code in l)
                     {
                         int e = code >> 16, k = code & 0xffff;
+                        if ((kindMask & (1 << edges[e].kind)) == 0) continue;
                         var pts = edges[e].pts;
                         // distancia al segmento k..k+1
                         Vector3 a = pts[k], b = pts[Mathf.Min(k + 1, pts.Length - 1)];
