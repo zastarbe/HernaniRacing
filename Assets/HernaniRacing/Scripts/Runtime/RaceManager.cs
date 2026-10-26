@@ -737,7 +737,7 @@ namespace HernaniRacing
 
             // ---- abajo derecha: velocímetro de aguja + digital
             float kmh = Mathf.Abs(player.car.ForwardSpeed) * 3.6f;
-            Speedometer.Draw(new Rect(W - 300, H - 300, 280, 280), kmh, player.car.maxSpeed * 3.6f, player.car.Reversing && player.car.ForwardSpeed < -0.5f);
+            Instruments.DrawCluster(W, H, player.car);   // velocímetro, cuentarrevoluciones, brújula e inclinómetro (v17)
 
             // ---- clasificación en vivo
             var order = racers.OrderBy(r => r.position).ToList();
@@ -787,8 +787,8 @@ namespace HernaniRacing
             if (chase != null && chase.RearView)
             {
                 var rv = new GUIStyle(mid) { alignment = TextAnchor.MiddleCenter };
-                GUI.Box(new Rect(W / 2 - 140, H - 120, 280, 40), GUIContent.none, box);
-                GUI.Label(new Rect(W / 2 - 140, H - 120, 280, 40), "VISTA TRASERA", rv);
+                GUI.Box(new Rect(W / 2 - 140, 122, 280, 40), GUIContent.none, box);     // arriba: abajo están los instrumentos
+                GUI.Label(new Rect(W / 2 - 140, 122, 280, 40), "VISTA TRASERA", rv);
             }
 
             // ---- avisos
@@ -817,7 +817,7 @@ namespace HernaniRacing
                 }
             }
             PenaltyHud.Draw(W, H, player.car);
-            GUI.Label(new Rect(20, H - 34, 1500, 26), "W/S acelerar/frenar · A/D girar · Espacio freno de mano · R recolocar · C cámara · B mirar atrás · Tab mapa · N zoom mapa · F flechas · O suelo" + (online ? " · M micrófono" : "") + " · Esc pausa", small);
+            GUI.Label(new Rect(20, H - 34, 1500, 26), "W/S acelerar/frenar · A/D girar · Espacio freno de mano · R recolocar · C cámara · B mirar atrás · Tab mapa · N zoom mapa · F flechas · O suelo · I instrumentos" + (online ? " · M micrófono" : "") + " · Esc pausa", small);
 
             if (paused) PauseMenu(W, H);
             else if (state == State.Finished) Results(W, H);

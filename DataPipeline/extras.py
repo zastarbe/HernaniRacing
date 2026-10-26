@@ -24,6 +24,7 @@ import numpy as np
 from shapely.geometry import LineString, MultiLineString, Point, Polygon, MultiPolygon, box
 from shapely.ops import substring, linemerge, polygonize, unary_union
 from shapely.strtree import STRtree
+from plates import plate_facade   # placa del nombre en la fachada (también corrige datos ya generados)
 
 OVERPASS = ["https://maps.mail.ru/osm/tools/overpass/api/interpreter", "https://overpass-api.de/api/interpreter",
             "https://overpass.kumi.systems/api/interpreter"]
@@ -537,38 +538,11 @@ def building_names(topon_path, bbox, origin, buildings, osm, edges, Hs, log=_log
             if b.get("l", 0) > 0 or b.get("k", 0) != 0:
                 continue
             v = np.array(b["v"]).reshape(-1, 2)[:b["r"][0]]
-            n = len(v)
-            best = None
-            for k in range(n):
-                a_, b_ = v[k], v[(k + 1) % n]
-                d = b_ - a_
-                L = float(np.hypot(*d))
-                if L < 2.6:
-                    continue
-                # anillo horario visto desde arriba: la normal exterior es (dz, -dx)
-                nrm = np.array([d[1], -d[0]]) / L
-                mid = (a_ + b_) / 2
-                dist, j = rtree.query(mid, distance_upper_bound=120)
-                if not np.isfinite(dist):
-                    dist, toward = 120.0, 0.5
-                else:
-                    to = rp[j] - mid
-                    toward = float(np.dot(to, nrm) / max(np.hypot(*to), 1e-6))
-                if toward < 0.2:
-                    continue
-                score = dist - 0.4 * min(L, 12.0) - 6.0 * toward
-                if best is None or score < best[0]:
-                    best = (score, mid, nrm, L)
-            if best is None:
+            res = plate_facade(v, rtree, rp, Hs, float(b["h"]))
+            if res is None:
                 continue
-            _, mid, nrm, L = best
-            gy = float(Hs(mid[0] + nrm[0] * 0.8, mid[1] + nrm[1] * 0.8)[0])
-            top = float(b["h"])
-            y = gy + min(2.7, max(1.6, (top - gy) * 0.55))
-            p = mid + nrm * 0.07
             b["pn"] = names[i][:26]
-            b["ps"] = [round(float(p[0]), 2), round(float(p[1]), 2), round(y, 2), round(float(nrm[0]), 3),
-                       round(float(nrm[1]), 3), round(min(L - 0.6, 9.0), 2)]
+            b["ps"] = res
             n_pl += 1
     log(f"Placas con nombre de edificio: {n_pl} (nombres de TOPON/OSM añadidos: {added})")
     return n_pl

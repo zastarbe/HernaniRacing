@@ -12,6 +12,36 @@ laterales quedan abiertas y la calzada va pegada al terreno real.
 También hay un modo **Paseo libre**: conduces por todo Hernani sin carrera, con tráfico y peatones que respetan
 las señales.
 
+## Novedades (versión 17): modo avión, cuentarrevoluciones, brújula, inclinómetro y carteles que se leen bien
+> Sólo cambia el juego (PC y web): **el servidor de la v16 sirve tal cual** (mismo protocolo v3 y mismos cruces, así que los
+> circuitos guardados siguen valiendo). Basta con actualizar el proyecto (1.2) y volver a hacer los builds (1.3 y 1.5–1.6).
+
+* **Modo avión** (pantalla principal, botón **MODO AVIÓN**): se ocultan los menús y queda sólo el vuelo sobre Hernani con los
+  botones de la izquierda.
+  * **Automático**: el paseo de siempre, de barrio en barrio.
+  * **Manual**: lo pilotas tú con las teclas de conducir: **A D / ← →** girar, **W S / ↑ ↓** más o menos velocidad
+    (60–600 km/h) y **Q E** bajar o subir (80–1500 m sobre el suelo). Sigue el relieve, así que no se estrella, y si llegas al
+    borde del mapa da la vuelta él solo.
+  * Abajo pone qué estás sobrevolando (barrio, pueblo, monte), el rumbo, la velocidad y la altura. **Esc** o el mismo botón
+    salen del modo avión.
+* **Cuadro de instrumentos** abajo a la derecha, en carrera y en paseo libre (tecla **I** para ocultar o enseñar los nuevos):
+  * **Cuentarrevoluciones** como el velocímetro, con zona roja según el coche (5.500 rpm en furgonetas y Land Rover, 7.000 en
+    turismos, 8.500 en deportivos y 15.000 en el F1), las revoluciones en números y la **marcha** (N, 1–5, R). La aguja va con
+    el sonido del motor (la misma caja de cambios simulada) y sube de vueltas si aceleras parado.
+  * **Brújula**: la rosa gira y arriba queda hacia dónde vas (N, NE, E, SE, S, SO, O, NO) con los grados (norte geográfico).
+  * **Inclinómetro** como el de los todoterrenos: horizonte artificial con el coche visto por detrás, escala de pendiente cada 5º
+    y de inclinación lateral hasta 45º. Encima, la **pendiente en %** (como las señales) y los grados de lado.
+* **Carteles de los montes y placas de las casas arreglados.** Los textos usaban el material de fuente de Unity, que se dibuja por
+  encima de todo y por las dos caras: se veían a través de los montes y las casas, y del revés por detrás. Ahora usan un shader
+  propio (`Resources/HernaniShaders/HR_WorldText.shader`): los tapa lo que haya delante y cada cara sólo enseña su texto.
+  Lo mismo para el pórtico de salida y meta.
+* **Placas en la fachada buena.** Las 1.103 placas de la v16 estaban por dentro de la pared del fondo (la normal de la pared
+  iba al revés). Ahora van por fuera, en la pared que da a la calle (1.099 placas; 4 casas sin pared válida se quedan sin placa).
+  Letras un poco más grandes (30 cm).
+* **Tren arreglado**: b5m dibuja cada vía por separado y el juego pintaba cuatro vías superpuestas; ahora hay una vía por línea
+  (dos en el tramo de vía doble que sólo trae una línea). Cada sentido va por su vía de punta a punta del mapa y para en
+  **Urnieta, Hernani‑Centro y Hernani**; los trenes se cruzan sin tocarse y los coches ya no se amontonan al dar la vuelta.
+
 ## Novedades (versión 16): caminos, bidegorris, tren, nombres en el mapa, web automática y chat de voz
 > ⚠ **Hay que actualizar el servidor y todos los juegos** (PC y web). Los mensajes online cambian (protocolo v3, por el chat de voz):
 > un juego v15 no entra en un servidor v16, ni al revés. Servidor: `cd ~/HernaniRacing && git pull && cd Server && sudo ./install.sh`.
@@ -30,7 +60,7 @@ las señales.
 * **Bidegorris (rojo).** Los carriles bici que no van por una calle: unos **20 km** (la red de Hernani, el de
   Urnieta – Andoain, el Plazaola…). Son estrechos (2,6 m) y **rojos**. Sólo peatones, también una décima parte.
 * **Tren.** Las **vías** de la línea Irun – Brinkola de Cercanías (19 km, con sus puentes y el túnel) y las estaciones de
-  **Hernani, Hernani‑Centro, Urnieta y Errekalde**, con andenes.
+  **Urnieta, Hernani‑Centro y Hernani**, con andenes (Errekalde sale en el mapa, pero es de otra línea que no entra en el juego).
   * Hay más o menos **un tren cada 4 km** de vía, a velocidad de tren (hasta 80 km/h), que **para 25 s en cada estación**.
   * Las vías **se pueden recorrer en coche**… pero los trenes son sólidos: mira antes de cruzar.
   * Online todos ven los mismos trenes en el mismo sitio (van con el reloj común del servidor). En el mapa salen en **morado**.
@@ -450,7 +480,8 @@ Si un build web falla o se queda en negro: mira la consola del navegador (F12). 
 ## 2. Cómo se juega
 
 ### Menús
-* **Presentación** (vuelo sobre Hernani): botones **¡A CORRER!** (carrera con lo que ves en las tarjetas), **PASEO LIBRE**, **JUGAR ONLINE** y **SALIR**.
+* **Presentación** (vuelo sobre Hernani): botones **¡A CORRER!** (carrera con lo que ves en las tarjetas), **PASEO LIBRE**, **JUGAR ONLINE**,
+  **MODO AVIÓN** (sólo el vuelo, automático o pilotado a mano: A D girar, W S velocidad, Q E altura) y **SALIR**.
   Las tarjetas resumen el **coche**, el **circuito** y la **carrera**; en la de carrera se cambian las **vueltas** (1–20), los **rivales IA** (0–8)
   y la **dificultad** (Fácil / Normal / Difícil).
 * **Coche** (*Cambiar coche*): clic en un modelo para elegirlo; a la derecha, su ficha y los colores. **LISTO** vuelve.
@@ -502,6 +533,7 @@ Si un build web falla o se queda en negro: mira la consola del navegador (F12). 
 | Vista trasera (mantener) | B | LB / L1 |
 | Mostrar / ocultar flechas del suelo | F | Cruceta ↓ |
 | Suelo: colores / ortofoto | O | Cruceta ← |
+| Instrumentos (cuentarrevoluciones, brújula, inclinómetro): ver / ocultar | I | Cruceta → |
 
 ### Paseo libre
 * Sin vueltas ni rivales: puedes ir por cualquier calle del área (≈ 10 × 13 km: de Martutene al límite sur de Hernani, junto a Goizueta).
@@ -618,17 +650,19 @@ Assets/HernaniRacing/
   Resources/HernaniData/    meta.json, roads.json (con sentidos/señales OSM), buildings.json, scenery.json, heightmap.bytes
   Resources/HernaniCars/    cars.json + un JSON por coche (malla, colores, ruedas y física)
   Resources/HernaniOrtho/   Ortofoto b5m 2025: orto_<x>_<z>.jpg (2048 px = 1 km, 0,5 m/px) y ortho.json
+  Resources/HernaniShaders/ HR_WorldText.shader: texto en el mundo que tapan el terreno y los edificios (v17)
   Resources/HernaniTerrain/ TerrainMaterial.mat: material del terreno (lo crea el editor solo; hace que el suelo se vea en los builds)
   Scripts/Runtime/
     GameBootstrap.cs        Punto de entrada: cámara, sol, niebla, carga y flujo del juego
     MainMenu.cs             Menús: presentación con resúmenes, pantalla de coche y navegación entre pantallas
     MenuState.cs            Lo elegido en los menús (coche, color, circuito, carrera, paseo) y su guardado en el PC
-    Flyover.cs              Vuelo cinematográfico sobre Hernani (fondo de los menús)
+    Flyover.cs              Vuelo cinematográfico sobre Hernani (fondo de los menús) y modo avión manual (v17)
     CarStudio.cs            Dibujos 3D de los coches para los menús (render a textura)
     HernaniData.cs          Carga de los JSON (JsonUtility) y del heightmap
     WorldBuilder.cs         Terreno, asfalto pegado al terreno, aceras, puentes, túneles, edificios, río
     GroundSurface.cs        Suelo con colores u ortofoto (carga progresiva, tecla O)
-    Speedometer.cs          Velocímetro de aguja con lectura digital
+    Speedometer.cs          Velocímetro de aguja con lectura digital (y la esfera común con el cuentarrevoluciones)
+    Instruments.cs          (v17) Cuadro de instrumentos: velocímetro, cuentarrevoluciones, brújula e inclinómetro (tecla I)
     TreeRenderer.cs         Árboles: una malla por bloque de 320 m (detalle cerca, simplificados lejos)
     RoadGraph.cs            Grafo viario: cruces, Dijkstra, búsquedas espaciales
     Circuit.cs              Circuito de 2–64 cruces (de A a B o cerrado): muestreo, trazada, perfil de velocidad, seguimiento
@@ -675,6 +709,8 @@ DataPipeline/
   preview_cars.py           Vista previa de los coches sin abrir Unity
   preview_map.py            Mapa de control
   extras.py                 (v16) Caminos/bidegorris/tren de OSM, cimas, nombres de edificios, estaciones y términos municipales
+  plates.py                 Pared y altura de las placas con el nombre de las casas (suelto: recalcula un buildings.json ya hecho)
+  rail_tracks.py            Ancho de las vías del tren (cada línea de b5m es una vía; vía doble donde sólo hay una línea)
   make_circuit_remap.py     (v16) Equivalencia de cruces entre dos versiones de los datos (para los circuitos del servidor)
   requirements.txt
 Server/

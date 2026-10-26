@@ -97,9 +97,29 @@ namespace HernaniRacing
                     tm.anchor = TextAnchor.MiddleCenter;
                     tm.alignment = TextAlignment.Center;
                     tm.color = Color.white;
-                    tgo.GetComponent<MeshRenderer>().sharedMaterial = font.material;
+                    tgo.GetComponent<MeshRenderer>().sharedMaterial = WorldTextMaterial(font);
                 }
             }
+        }
+
+        static Material worldText; static Font worldTextFont;
+
+        /// <summary>
+        /// Material para TextMesh en el mundo: se tapa con el terreno y los edificios y sólo se lee por delante
+        /// (el material propio de la fuente se dibuja encima de todo y por las dos caras). Si el shader no está,
+        /// se usa el de la fuente.
+        /// </summary>
+        public static Material WorldTextMaterial(Font f)
+        {
+            if (f == null) return null;
+            if (worldText != null && worldTextFont == f) return worldText;
+            var sh = Resources.Load<Shader>("HernaniShaders/HR_WorldText");
+            if (sh == null) sh = Shader.Find("HernaniRacing/WorldText");
+            if (sh == null || !sh.isSupported) { Debug.LogWarning("Falta el shader HernaniRacing/WorldText: textos con el material de la fuente"); return f.material; }
+            worldText = new Material(sh) { name = "HR_texto_mundo", mainTexture = f.material.mainTexture, renderQueue = 3000 };
+            worldTextFont = f;
+            Font.textureRebuilt += fr => { if (fr == worldTextFont && worldText != null) worldText.mainTexture = fr.material.mainTexture; };
+            return worldText;
         }
 
         public static Font BuiltinFont()

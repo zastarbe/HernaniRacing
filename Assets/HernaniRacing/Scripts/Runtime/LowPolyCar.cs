@@ -155,6 +155,26 @@ namespace HernaniRacing
         bool shutdown;
         float shutV0 = 1f, shutT, idleFade = 1f;
         public bool IsOff { get { return shutdown && idleFade <= 0f; } }
+        /// <summary>Régimen del motor 0..1 (0,25 = ralentí, 1 = cambio de marcha), el mismo que suena.</summary>
+        public float Rpm01 { get; private set; }
+        /// <summary>Marcha simulada (1..5); 0 = punto muerto (parado), -1 = marcha atrás.</summary>
+        public int Gear { get; private set; }
+        /// <summary>1 = motor encendido; baja a 0 al apagarlo tras la meta.</summary>
+        public float Ignition { get { return shutdown ? idleFade : 1f; } }
+        float revs;   // subida de vueltas al acelerar parado (suavizada)
+
+        /// <summary>
+        /// Caja de cambios simulada (5 marchas repartidas hasta la velocidad punta): marcha y régimen 0..1 para una
+        /// velocidad. La usan el sonido del motor y el cuentarrevoluciones (así la aguja va con el sonido).
+        /// </summary>
+        public static void Simulate(float speed, float maxSpeed, out int gear, out float rpm01)
+        {
+            float gearSpan = Mathf.Max(1f, maxSpeed) / 5f;
+            float inGear = (speed % gearSpan) / gearSpan;
+            int g = Mathf.Min(4, (int)(speed / gearSpan));
+            rpm01 = 0.25f + 0.75f * Mathf.Clamp01(g == 0 ? speed / gearSpan : 0.35f + inGear * 0.65f);
+            gear = g + 1;
+        }
 
 #if UNITY_WEBGL && !UNITY_EDITOR
         static readonly bool UseClip = true;
@@ -215,11 +235,13 @@ namespace HernaniRacing
             if (car == null) return;
             float sp = Mathf.Abs(car.ForwardSpeed);
             // 5 marchas simuladas
-            float gearSpan = car.maxSpeed / 5f;
-            float inGear = (sp % gearSpan) / gearSpan;
-            int gear = Mathf.Min(4, (int)(sp / gearSpan));
-            float rpm = 0.25f + 0.75f * Mathf.Clamp01(gear == 0 ? sp / gearSpan : 0.35f + inGear * 0.65f);
+            int gear; float rpm;
+            Simulate(sp, car.maxSpeed, out gear, out rpm);
             float load = Mathf.Clamp01(car.throttle);
+            // acelerando parado (o casi) el motor sube de vueltas
+            revs = Mathf.MoveTowards(revs, sp < 2f && !shutdown ? load * 0.45f : 0f, Time.deltaTime * (load > 0.1f ? 0.9f : 1.6f));
+            rpm = Mathf.Max(rpm, 0.25f + revs);
+            Gear = car.ForwardSpeed < -0.5f ? -1 : (sp < 0.3f ? 0 : gear);
             float level = 1f;
             if (shutdown)
             {
@@ -232,6 +254,7 @@ namespace HernaniRacing
                 rpm = Mathf.Lerp(0.12f, rpm, k) * (0.6f + 0.4f * idleFade);
                 level = (0.25f + 0.75f * k) * idleFade;
             }
+            Rpm01 = rpm;
             targetFreq = 38f + rpm * 120f;
             float want = volume * (0.45f + 0.55f * load) * level;
             gain = Mathf.Lerp(gain, want, Time.deltaTime * (shutdown ? 3f : 5f));

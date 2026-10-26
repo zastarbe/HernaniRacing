@@ -17,7 +17,7 @@ namespace HernaniRacing
         static readonly Dictionary<int, Texture2D> faces = new Dictionary<int, Texture2D>();
         static Texture2D needle, hub;
         static GUIStyle num, lcd, unit, gear;
-        static float shown, lastStyleScale = -1f;
+        static float shown;
 
         /// <summary>Escala del dial para una velocidad punta (km/h): fondo de escala, paso de los números y de las marcas.</summary>
         public static void Scale(float topKmh, out int max, out int major, out int minor)
@@ -44,27 +44,39 @@ namespace HernaniRacing
             Scale(topKmh, out max, out major, out minor);
             if (Event.current.type == EventType.Repaint)
                 shown = Mathf.Lerp(shown, kmh, 1f - Mathf.Exp(-14f * Mathf.Min(Time.unscaledDeltaTime, 0.1f)));
+            int red = Mathf.Clamp(Mathf.RoundToInt(topKmh / 5f) * 5, 0, max);
+            DrawDial(r, shown, max, major, minor, red, null, Mathf.RoundToInt(kmh).ToString(), "km/h", reverse ? "R" : null);
+        }
+
+        /// <summary>
+        /// Esfera de aguja genérica (velocímetro y cuentarrevoluciones): escala 0..max con marcas cada 'minor',
+        /// números cada 'major' (texto con 'label', o el valor), zona roja desde 'red', pantalla digital 'lcdText',
+        /// unidad debajo y un carácter a la izquierda de la pantalla ('side', p. ej. la marcha).
+        /// </summary>
+        public static void DrawDial(Rect r, float value, int max, int major, int minor, int red, System.Func<int, string> label, string lcdText, string unitText, string side)
+        {
             float D = Mathf.Min(r.width, r.height), R = D * 0.5f;
             Vector2 c = new Vector2(r.x + r.width * 0.5f, r.y + r.height * 0.5f);
             Styles(D);
 
-            GUI.DrawTexture(new Rect(c.x - R, c.y - R, D, D), Face(max, major, minor, topKmh));
+            GUI.DrawTexture(new Rect(c.x - R, c.y - R, D, D), Face(max, major, minor, red));
 
             // números de la escala
             for (int v = 0; v <= max; v += major)
             {
                 float a = Angle(v, max) * Mathf.Deg2Rad;
                 Vector2 p = c + new Vector2(Mathf.Sin(a), -Mathf.Cos(a)) * (R * 0.615f);
-                GUI.Label(new Rect(p.x - 40, p.y - 16, 80, 32), v.ToString(), num);
+                GUI.Label(new Rect(p.x - 40, p.y - 16, 80, 32), label != null ? label(v) : v.ToString(), num);
             }
 
             // pantalla digital
             Rect lr = new Rect(c.x - R * 0.27f, c.y + R * 0.30f, R * 0.54f, R * 0.26f);
             GUI.DrawTexture(new Rect(lr.x - 2, lr.y - 2, lr.width + 4, lr.height + 4), Tex.Solid(new Color(0.55f, 0.58f, 0.62f, 0.9f)));
             GUI.DrawTexture(lr, Tex.Solid(new Color(0.03f, 0.06f, 0.05f, 1f)));
-            GUI.Label(lr, Mathf.RoundToInt(kmh).ToString(), lcd);
-            if (reverse) GUI.Label(new Rect(lr.x - R * 0.16f, lr.y, R * 0.16f, lr.height), "R", gear);
-            GUI.Label(new Rect(c.x - R * 0.4f, lr.yMax + R * 0.02f, R * 0.8f, R * 0.16f), "km/h", unit);
+            GUI.Label(lr, lcdText, lcd);
+            // marcha (o R): en el hueco entre el eje de la aguja y la pantalla, lejos de los números de la escala
+            if (!string.IsNullOrEmpty(side)) GUI.Label(new Rect(c.x - R * 0.2f, c.y + R * 0.13f, R * 0.4f, R * 0.17f), side, gear);
+            GUI.Label(new Rect(c.x - R * 0.5f, lr.yMax + R * 0.02f, R, R * 0.16f), unitText, unit);
 
             // aguja (girada alrededor del centro del dial) y tapa central
             if (needle == null) needle = MakeNeedle();
@@ -73,34 +85,45 @@ namespace HernaniRacing
             float h = nl * 256f / 206f, w = h * 24f / 256f;         // el eje está a 50 px de la base de la textura
             Rect nr = new Rect(c.x - w * 0.5f, c.y - h * (206f / 256f), w, h);
             Matrix4x4 m = GUI.matrix;
-            GUI.matrix = m * Matrix4x4.TRS(c, Quaternion.Euler(0, 0, Angle(shown, max)), Vector3.one) * Matrix4x4.TRS(-c, Quaternion.identity, Vector3.one);
+            GUI.matrix = m * Matrix4x4.TRS(c, Quaternion.Euler(0, 0, Angle(value, max)), Vector3.one) * Matrix4x4.TRS(-c, Quaternion.identity, Vector3.one);
             GUI.DrawTexture(nr, needle);
             GUI.matrix = m;
             float hr = R * 0.13f;
             GUI.DrawTexture(new Rect(c.x - hr, c.y - hr, hr * 2, hr * 2), hub);
         }
 
+        /// <summary>Tapa central de las agujas (también para los demás instrumentos).</summary>
+        public static Texture2D Hub { get { if (hub == null) hub = MakeHub(); return hub; } }
+
+        static readonly Dictionary<int, GUIStyle[]> styleCache = new Dictionary<int, GUIStyle[]>();
+
+        /// <summary>Estilos de texto para una esfera de diámetro D (en caché por tamaño: hay esferas de varios tamaños).</summary>
         static void Styles(float D)
         {
-            if (num != null && Mathf.Abs(lastStyleScale - D) < 0.5f) return;
-            lastStyleScale = D;
-            num = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold, fontSize = Mathf.RoundToInt(D * 0.064f) };
-            num.normal.textColor = new Color(0.96f, 0.96f, 0.96f);
-            lcd = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold, fontSize = Mathf.RoundToInt(D * 0.105f) };
-            lcd.normal.textColor = new Color(1f, 0.68f, 0.18f);
-            gear = new GUIStyle(lcd) { alignment = TextAnchor.MiddleLeft, fontSize = Mathf.RoundToInt(D * 0.07f) };
-            gear.normal.textColor = new Color(1f, 0.3f, 0.25f);
-            unit = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.UpperCenter, fontSize = Mathf.RoundToInt(D * 0.055f) };
-            unit.normal.textColor = new Color(0.75f, 0.78f, 0.82f);
+            int key = Mathf.RoundToInt(D);
+            GUIStyle[] st;
+            if (!styleCache.TryGetValue(key, out st))
+            {
+                var n = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold, fontSize = Mathf.RoundToInt(D * 0.064f) };
+                n.normal.textColor = new Color(0.96f, 0.96f, 0.96f);
+                var l = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold, fontSize = Mathf.RoundToInt(D * 0.105f) };
+                l.normal.textColor = new Color(1f, 0.68f, 0.18f);
+                var g = new GUIStyle(l) { alignment = TextAnchor.MiddleCenter, fontSize = Mathf.RoundToInt(D * 0.075f) };
+                g.normal.textColor = new Color(1f, 0.3f, 0.25f);
+                var u = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.UpperCenter, fontSize = Mathf.RoundToInt(D * 0.055f) };
+                u.normal.textColor = new Color(0.75f, 0.78f, 0.82f);
+                st = new[] { n, l, g, u };
+                styleCache[key] = st;
+            }
+            num = st[0]; lcd = st[1]; gear = st[2]; unit = st[3];
         }
 
         // ------------------------------------------------------------------ texturas
         static float Cov(float edgeDist) { return Mathf.Clamp01(edgeDist + 0.5f); }
 
-        static Texture2D Face(int max, int major, int minor, float topKmh)
+        static Texture2D Face(int max, int major, int minor, int red)
         {
-            int red = Mathf.Clamp(Mathf.RoundToInt(topKmh / 5f) * 5, 0, max);
-            int key = max * 10000 + red;
+            int key = ((max * 1000 + red) * 100 + major) * 10 + Mathf.Min(minor, 9);
             Texture2D t;
             if (faces.TryGetValue(key, out t) && t != null) return t;
             t = new Texture2D(FaceRes, FaceRes, TextureFormat.RGBA32, true) { name = "HR_velocimetro_" + max, wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Trilinear };

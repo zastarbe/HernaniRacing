@@ -53,6 +53,7 @@ namespace HernaniRacing
         public static bool MapZoomPressed { get { return KD(Key.N) || (Pad != null && Pad.dpad.up.wasPressedThisFrame); } }
         public static bool ArrowsPressed { get { return KD(Key.F) || (Pad != null && Pad.dpad.down.wasPressedThisFrame); } }
         public static bool SurfacePressed { get { return KD(Key.O) || (Pad != null && Pad.dpad.left.wasPressedThisFrame); } }
+        public static bool InstrumentsPressed { get { return KD(Key.I) || (Pad != null && Pad.dpad.right.wasPressedThisFrame); } }
         public static Vector2 Pan
         {
             get
@@ -85,6 +86,7 @@ namespace HernaniRacing
         public static bool MapZoomPressed { get { return Input.GetKeyDown(KeyCode.N) || Input.GetKeyDown(KeyCode.JoystickButton6); } }
         public static bool ArrowsPressed { get { return Input.GetKeyDown(KeyCode.F); } }
         public static bool SurfacePressed { get { return Input.GetKeyDown(KeyCode.O); } }
+        public static bool InstrumentsPressed { get { return Input.GetKeyDown(KeyCode.I); } }
         public static Vector2 Pan
         {
             get

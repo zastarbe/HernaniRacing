@@ -9,12 +9,14 @@ namespace HernaniRacing
     ///  · Casas y edificios con nombre (b5m TOPON + OSM): placa en la fachada principal (la que da a la calle).
     /// Los tableros y postes van fusionados en una malla por trozo de mapa; los textos son TextMesh que sólo se
     /// dibujan cerca de la cámara (las placas a ~140 m, los montes a ~2,5 km).
+    /// v17: los textos usan el material HernaniRacing/WorldText: los tapan el monte y las casas que haya delante y
+    /// cada cara del cartel sólo enseña su texto (antes se veían a través de todo y del revés por detrás).
     /// </summary>
     public class Signage : MonoBehaviour
     {
         const float PlateRange = 140f, PeakRange = 2500f;
         const float PeakLetter = 1.15f;        // altura de las mayúsculas en el cartel del monte (m)
-        const float PlateLetter = 0.22f;       // en las placas de las casas
+        const float PlateLetter = 0.30f;       // en las placas de las casas
         static readonly Color PeakBoard = new Color(0.10f, 0.33f, 0.20f);
         static readonly Color PlateBoard = new Color(0.95f, 0.94f, 0.90f);
         static readonly Color PlateText = new Color(0.08f, 0.20f, 0.55f);
@@ -91,6 +93,8 @@ namespace HernaniRacing
             return cap / (glyph * 0.1f);
         }
 
+        Material textMat;
+
         TextMesh Text(Transform parent, Font f, string t, int size, float charSize, Color c, Vector3 pos, Vector3 facing, float range)
         {
             var go = new GameObject(t);
@@ -101,7 +105,8 @@ namespace HernaniRacing
             tm.font = f; tm.fontSize = size; tm.characterSize = charSize;
             tm.text = t; tm.anchor = TextAnchor.MiddleCenter; tm.alignment = TextAlignment.Center; tm.color = c;
             var r = go.GetComponent<MeshRenderer>();
-            r.sharedMaterial = f.material;
+            if (textMat == null) textMat = CircuitVisuals.WorldTextMaterial(f);
+            r.sharedMaterial = textMat;
             r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             r.receiveShadows = false;
             r.enabled = false;
@@ -114,7 +119,7 @@ namespace HernaniRacing
         {
             var peaks = w.data.scenery.peaks;
             if (peaks == null) return;
-            const int size = 64;
+            const int size = 96;                     // más píxeles por letra: más nítido de cerca
             float cs = CharSizeFor(f, size, PeakLetter);
             foreach (var pk in peaks)
             {
@@ -146,8 +151,9 @@ namespace HernaniRacing
                 }
                 BoxR(mb[ch], 1, c + Vector3.up * (bottom + bh * 0.5f), new Vector3(bw, bh, 0.12f), Quaternion.LookRotation(facing));
                 Vector3 mid = c + Vector3.up * (bottom + bh * 0.5f);
-                Text(transform, f, pk.name, size, cs, Color.white, mid + facing * 0.075f, facing, PeakRange);
-                Text(transform, f, pk.name, size, cs, Color.white, mid - facing * 0.075f, -facing, PeakRange);
+                // una cara por lado del tablero (de 12 cm): cada una sólo se ve desde su lado y el tablero tapa la otra
+                Text(transform, f, pk.name, size, cs, Color.white, mid + facing * 0.09f, facing, PeakRange);
+                Text(transform, f, pk.name, size, cs, Color.white, mid - facing * 0.09f, -facing, PeakRange);
                 PeakCount++;
             }
         }
@@ -156,7 +162,7 @@ namespace HernaniRacing
         void BuildPlates(World w, Font f, MeshBuilder[] mb)
         {
             var bs = w.data.buildings.buildings;
-            const int size = 32;
+            const int size = 48;
             float cs = CharSizeFor(f, size, PlateLetter);
             foreach (var b in bs)
             {
@@ -173,7 +179,7 @@ namespace HernaniRacing
                 Vector3 c = new Vector3(b.ps[0], b.ps[2], b.ps[1]) + n * 0.05f;
                 int ch = w.ChunkIndex(c);
                 BoxR(mb[ch], 2, c, new Vector3(pw, ph, 0.04f), Quaternion.LookRotation(n));
-                Text(transform, f, name, size, cs * scale, PlateText, c + n * 0.025f, n, PlateRange);
+                Text(transform, f, name, size, cs * scale, PlateText, c + n * 0.04f, n, PlateRange);   // 2 cm por delante de la placa
                 PlateCount++;
             }
         }

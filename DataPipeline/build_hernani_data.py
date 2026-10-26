@@ -1597,6 +1597,11 @@ def main():
     }
     with open(os.path.join(args.out, "meta.json"), "w", encoding="utf8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=1)
+    try:  # cada línea de tren de b5m es una vía: ancho de vía única salvo tramos largos sin pareja
+        import rail_tracks
+        print("vías del tren (única/doble):", rail_tracks.fix(edges_json))
+    except Exception as ex:
+        print("aviso: rail_tracks", ex)
     with open(os.path.join(args.out, "roads.json"), "w", encoding="utf8") as f:
         # holes: celdas del terreno (índice z*(gridX-1)+x) abiertas en las bocas de los túneles
         json.dump({"nodes": nodes_json, "edges": edges_json, "holes": [int(v) for v in holes]},

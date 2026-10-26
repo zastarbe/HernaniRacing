@@ -315,7 +315,7 @@ namespace HernaniRacing
 
             // velocímetro de aguja + digital
             float kmh = Mathf.Abs(car.ForwardSpeed) * 3.6f;
-            Speedometer.Draw(new Rect(W - 300, H - 300, 280, 280), kmh, car.maxSpeed * 3.6f, car.Reversing && car.ForwardSpeed < -0.5f);
+            Instruments.DrawCluster(W, H, car);   // velocímetro, cuentarrevoluciones, brújula e inclinómetro (v17)
             float lim = hudEdge >= 0 && !g.edges[hudEdge].IsRoad ? 20f : curEdge >= 0 ? (g.edges[curEdge].width >= 10f ? 120f : (g.edges[curEdge].type == "Carretera" ? 50f : 30f)) : 0f;
             if (lim > 0)
             {
@@ -370,10 +370,10 @@ namespace HernaniRacing
             }
             if (chase != null && chase.RearView)
             {
-                GUI.Box(new Rect(W / 2 - 140, H - 120, 280, 40), GUIContent.none, box);
-                GUI.Label(new Rect(W / 2 - 140, H - 120, 280, 40), "VISTA TRASERA", mid);
+                GUI.Box(new Rect(W / 2 - 140, 152, 280, 40), GUIContent.none, box);     // arriba: abajo están los instrumentos
+                GUI.Label(new Rect(W / 2 - 140, 152, 280, 40), "VISTA TRASERA", mid);
             }
-            GUI.Label(new Rect(20, H - 34, 1400, 26), "W/S acelerar/frenar · A/D girar · Espacio freno de mano · R recolocar · C cámara · B mirar atrás · Tab mapa · N zoom mapa · O suelo" + (online ? " · M micrófono" : "") + " · Esc menú", small);
+            GUI.Label(new Rect(20, H - 34, 1400, 26), "W/S acelerar/frenar · A/D girar · Espacio freno de mano · R recolocar · C cámara · B mirar atrás · Tab mapa · N zoom mapa · O suelo · I instrumentos" + (online ? " · M micrófono" : "") + " · Esc menú", small);
 
             if (car != null) PenaltyHud.Draw(W, H, car);
             if (paused)

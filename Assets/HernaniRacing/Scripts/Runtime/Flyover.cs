@@ -5,6 +5,9 @@ namespace HernaniRacing
     /// <summary>
     /// Fondo de los menús: la cámara sobrevuela Hernani como en una película, a unos 300 m sobre el terreno
     /// y a 300 km/h, dando un paseo aleatorio de barrio en barrio sin salirse del área cargada.
+    /// v17 (modo avión de la pantalla principal): en manual se pilota con las teclas de conducir:
+    /// A/D o ←/→ girar, W/S o ↑/↓ más o menos velocidad (60–600 km/h), Q/E bajar o subir (80–1500 m sobre el suelo).
+    /// Sigue el relieve igualmente (no se estrella) y en el borde del mapa vuelve hacia dentro él solo.
     /// </summary>
     public class Flyover : MonoBehaviour
     {
@@ -16,6 +19,24 @@ namespace HernaniRacing
         const float EdgeMargin = 1500f;             // no acercarse más a los bordes del área
 
         bool on, started;
+        bool manual;
+        float speed = Speed, height = Height;       // en manual se cambian; en automático vuelven a los de siempre
+        public bool Manual { get { return manual; } }
+        public float SpeedKmh { get { return speed * 3.6f; } }
+        public float HeightAboveGround { get { return alt - Ground(pos); } }
+        public float HeadingDeg { get { return heading; } }
+        public Vector3 Position { get { return new Vector3(pos.x, alt, pos.y); } }
+        /// <summary>En manual: se ha llegado al borde del mapa y el avión está girando hacia dentro.</summary>
+        public bool AtEdge { get; private set; }
+
+        /// <summary>Pilotar a mano (true) o dejar el paseo automático (false).</summary>
+        public void SetManual(bool m)
+        {
+            if (m == manual) return;
+            manual = m;
+            AtEdge = false;
+            if (!m && started) PickTarget();     // vuelve al paseo desde donde esté
+        }
         Vector2 pos;                // x, z
         float heading;              // grados (0 = norte, 90 = este)
         float turnRate, bank, alt, altVel;
@@ -151,6 +172,9 @@ namespace HernaniRacing
 
         void Step(float dt)
         {
+            if (manual) { StepManual(dt); return; }
+            speed = Mathf.MoveTowards(speed, Speed, 40f * dt);
+            height = Mathf.MoveTowards(height, Height, 60f * dt);
             if (Vector2.Distance(pos, target) < 700f || t > nextPick) PickTarget();
             float want = Mathf.Atan2(target.x - pos.x, target.y - pos.y) * Mathf.Rad2Deg;
 
@@ -171,16 +195,49 @@ namespace HernaniRacing
             turnRate = Mathf.MoveTowards(turnRate, desired, 2.5f * dt);
             heading = Mathf.Repeat(heading + turnRate * dt, 360f);
 
-            f = new Vector2(Mathf.Sin(heading * Mathf.Deg2Rad), Mathf.Cos(heading * Mathf.Deg2Rad));
-            pos += f * Speed * dt;
+            Advance(dt);
+        }
+
+        /// <summary>Avanzar en el rumbo, seguir el relieve y ladear según el giro (común a automático y manual).</summary>
+        void Advance(float dt)
+        {
+            Vector2 f = new Vector2(Mathf.Sin(heading * Mathf.Deg2Rad), Mathf.Cos(heading * Mathf.Deg2Rad));
+            pos += f * speed * dt;
             pos = ClampInside(pos, 50f);
 
-            float goal = GroundAhead() + Height;
+            float goal = GroundAhead() + height;
             alt = Mathf.SmoothDamp(alt, goal, ref altVel, 3.5f, 60f, dt);
-            float floor = Ground(pos) + Height * 0.55f;
+            float floor = Ground(pos) + height * 0.55f;
             if (alt < floor) { alt = floor; altVel = Mathf.Max(altVel, 0f); }
 
             bank = Mathf.Lerp(bank, -turnRate * 1.8f, 1f - Mathf.Exp(-1.5f * dt));
+        }
+
+        /// <summary>Manual: girar con A/D, velocidad con W/S y altura con Q/E. En el borde, vuelta automática.</summary>
+        void StepManual(float dt)
+        {
+            bool typing = GUIUtility.keyboardControl != 0;
+            float steer = typing ? 0f : Mathf.Clamp(GameInput.Steer, -1f, 1f);
+            float thr = typing ? 0f : GameInput.Throttle, brk = typing ? 0f : GameInput.Brake;
+            float up = typing ? 0f : GameInput.Zoom;                 // E / RePág subir, Q / AvPág bajar
+            speed = Mathf.Clamp(speed + (thr - brk) * 70f * dt, 60f / 3.6f, 600f / 3.6f);
+            height = Mathf.Clamp(height + up * 160f * dt, 80f, 1500f);
+
+            float desired = steer * 22f;                             // hasta 22º/s
+            // en el borde del mapa y yendo hacia fuera: gira solo hacia el centro (gana a las teclas)
+            Vector2 c = new Vector2(world.sizeX * 0.5f, world.sizeZ * 0.5f);
+            Vector2 f = new Vector2(Mathf.Sin(heading * Mathf.Deg2Rad), Mathf.Cos(heading * Mathf.Deg2Rad));
+            float em = 600f;
+            bool nearEdge = pos.x < em || pos.y < em || pos.x > world.sizeX - em || pos.y > world.sizeZ - em;
+            AtEdge = nearEdge && Vector2.Dot(f, c - pos) < 0f;
+            if (AtEdge)
+            {
+                float want = Mathf.Atan2(c.x - pos.x, c.y - pos.y) * Mathf.Rad2Deg;
+                desired = Mathf.Clamp(Mathf.DeltaAngle(heading, want) * 0.5f, -25f, 25f);
+            }
+            turnRate = Mathf.MoveTowards(turnRate, desired, 30f * dt);
+            heading = Mathf.Repeat(heading + turnRate * dt, 360f);
+            Advance(dt);
         }
 
         void Apply(float dt)
@@ -188,6 +245,7 @@ namespace HernaniRacing
             // mirada hacia delante y abajo, con un balanceo lento para que no sea monótono
             float pitch = 21f + 5f * Mathf.Sin(t * 0.11f) - Mathf.Clamp(altVel * 0.25f, -6f, 6f);
             float yaw = heading + 6f * Mathf.Sin(t * 0.07f + 1.3f);
+            if (manual) { pitch = 18f - Mathf.Clamp(altVel * 0.25f, -6f, 6f); yaw = heading; }   // a mano: mira justo adonde va
             cam.transform.position = new Vector3(pos.x, alt, pos.y);
             cam.transform.rotation = Quaternion.Euler(pitch, yaw, bank);
         }

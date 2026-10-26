@@ -26,6 +26,9 @@ namespace HernaniRacing
         MenuScreen screen = MenuScreen.Title;
         bool open;
         System.Action pending;
+        // v17: modo avión (sólo en la pantalla principal): se ocultan los menús salvo los botones de la izquierda
+        bool planeMode, planeManual;
+        Toponymy planeTopo;
 
         public bool IsOpen { get { return open; } }
         public MenuScreen Screen { get { return screen; } }
@@ -66,13 +69,21 @@ namespace HernaniRacing
             if (!open) return;
             open = false;
             map.Close();
+            SetPlaneMode(false);
             fly.End();
             state.Save();
+        }
+
+        void SetPlaneMode(bool on)
+        {
+            planeMode = on;
+            if (fly != null) fly.SetManual(on && planeManual);
         }
 
         void Show(MenuScreen s)
         {
             screen = s;
+            if (s != MenuScreen.Title) SetPlaneMode(false);
             if (s == MenuScreen.Circuit || s == MenuScreen.Free)
             {
                 fly.End();
@@ -217,7 +228,8 @@ namespace HernaniRacing
             bool typing = GUIUtility.keyboardControl != 0;
             if (!typing && GameInput.PausePressed)
             {
-                if (screen == MenuScreen.Online && lobby.ShowingOptions) lobby.CloseOptions();
+                if (screen == MenuScreen.Title && planeMode) SetPlaneMode(false);
+                else if (screen == MenuScreen.Online && lobby.ShowingOptions) lobby.CloseOptions();
                 else if (screen == MenuScreen.Online && lobby.ShowingRankings) lobby.CloseRankings();
                 else if (screen != MenuScreen.Title && !(screen == MenuScreen.Online && InRoom)) Back();
             }
@@ -297,41 +309,52 @@ namespace HernaniRacing
         void TitleScreen()
         {
             bool wide = W >= 1700f;
-            Title(56, 30);
-            GUI.Label(new Rect(62, 118, 1100, 60), "Carreras por las calles reales de Hernani, Urnieta y Astigarraga", subtitle);
+            if (!planeMode)
+            {
+                Title(56, 30);
+                GUI.Label(new Rect(62, 118, 1100, 60), "Carreras por las calles reales de Hernani, Urnieta y Astigarraga", subtitle);
+            }
 
             // botones principales
-            string[] labels = { "¡A CORRER!", "PASEO LIBRE", "JUGAR ONLINE", "SALIR" };
-            Rect[] br = new Rect[4];
+            string[] labels = { "¡A CORRER!", "PASEO LIBRE", "JUGAR ONLINE", planeMode ? "SALIR DEL MODO AVIÓN" : "MODO AVIÓN", "SALIR" };
+            Rect[] br = new Rect[5];
             if (wide)
             {
                 br[0] = new Rect(60, 220, 420, 92);
                 br[1] = new Rect(60, 326, 420, 70);
                 br[2] = new Rect(60, 408, 420, 70);
                 br[3] = new Rect(60, 490, 420, 52);
+                br[4] = new Rect(60, 556, 420, 52);
             }
             else
             {
-                float bw = (W - 120 - 3 * 14) / 4f;
-                for (int i = 0; i < 4; i++) br[i] = new Rect(60 + i * (bw + 14), 200, bw, i == 0 ? 84 : 70);
+                float bw = (W - 120 - 4 * 14) / 5f;
+                for (int i = 0; i < 5; i++) br[i] = new Rect(60 + i * (bw + 14), 200, bw, i == 0 ? 84 : 70);
             }
             GUI.enabled = state.CircuitOk;
             if (GUI.Button(br[0], labels[0], bigBtn)) pending = StartRace;
             GUI.enabled = true;
             if (GUI.Button(br[1], labels[1], midBtn)) Go(MenuScreen.Free);
             if (GUI.Button(br[2], labels[2], midBtn)) Go(MenuScreen.Online);
-            if (GUI.Button(br[3], labels[3], btn)) pending = Quit;
-            SurfaceChooser(wide ? new Rect(60, 620, 420, 92) : new Rect(60, 300, Mathf.Min(560f, W - 120f), 92));
+            if (GUI.Button(br[3], labels[3], planeMode ? onBtn : btn)) { bool on = !planeMode; pending = () => SetPlaneMode(on); }
+            if (GUI.Button(br[4], labels[4], btn)) pending = Quit;
+            if (planeMode)
+            {
+                PlanePanel(wide ? new Rect(60, 626, 420, 250) : new Rect(60, 300, Mathf.Min(560f, W - 120f), 250));
+                Credits();
+                return;     // modo avión: nada más (los botones, el panel del vuelo y los créditos de los datos)
+            }
+            SurfaceChooser(wide ? new Rect(60, 690, 420, 92) : new Rect(60, 300, Mathf.Min(560f, W - 120f), 92));
             if (wide)
             {
                 string what;
                 if (!state.CircuitOk) what = "Elige un circuito para correr.";
                 else if (!state.circuit.closed) what = "Carrera de la salida a la meta en " + state.CircuitName + ".";
                 else what = "Carrera de " + state.settings.laps + " vuelta" + (state.settings.laps == 1 ? "" : "s") + " en " + state.CircuitName + ".";
-                GUI.Label(new Rect(64, 552, 420, 60), what, small);
+                GUI.Label(new Rect(64, 616, 420, 60), what, small);
             }
             // teclas, bien grandes (todas las del juego)
-            if (wide) ControlsPanel(new Rect(540, 200, W - 600, 380));
+            if (wide) ControlsPanel(new Rect(540, 200, W - 600, 390));
             else ControlsPanel(new Rect(Mathf.Min(640f, W * 0.45f), 300, W - 60 - Mathf.Min(640f, W * 0.45f), 285));
 
             // resúmenes
@@ -341,6 +364,11 @@ namespace HernaniRacing
             float y = 1080f - 50f - cardH;
             DrawCards(x0, y, cardW, cardH, gap, false);
 
+            Credits();
+        }
+
+        void Credits()
+        {
             GUI.Label(new Rect(60, 1080 - 34, W - 120, 24),
                 "Datos y ortofoto: © b5m Gipuzkoa · © geoEuskadi · © IGN (MDT05) · SITNA – Gobierno de Navarra (CC BY) · © OpenStreetMap (ODbL) · tráfico: DFG / Open Data Euskadi · coches CC0", small);
         }
@@ -348,13 +376,15 @@ namespace HernaniRacing
         static readonly string[][] KeysDrive =
         {
             new[] { "W  ↑", "Acelerar" }, new[] { "S  ↓", "Frenar / marcha atrás" }, new[] { "A D  ← →", "Girar" },
-            new[] { "Espacio", "Freno de mano" }, new[] { "R", "Recolocar el coche" }, new[] { "Esc  P", "Pausa / menú" }
+            new[] { "Espacio", "Freno de mano" }, new[] { "R", "Recolocar el coche" }, new[] { "Esc  P", "Pausa / menú" },
+            new[] { null, "MODO AVIÓN (manual)" },
+            new[] { "A D  ← →", "Girar" }, new[] { "W S  ↑ ↓", "Más / menos velocidad" }, new[] { "Q E", "Bajar / subir" }
         };
         static readonly string[][] KeysView =
         {
             new[] { "C", "Cambiar de cámara" }, new[] { "B", "Mirar atrás" }, new[] { "Tab", "Mapa: ver / ocultar" },
             new[] { "N", "Zoom del mapa" }, new[] { "F", "Flechas de guía (carrera)" }, new[] { "O", "Suelo: colores / foto aérea" },
-            new[] { "M", "Micrófono on/off (online)" }
+            new[] { "I", "Instrumentos: ver / ocultar" }, new[] { "M", "Micrófono on/off (online)" }
         };
         static readonly string[][] KeysMap =
         {
@@ -368,7 +398,12 @@ namespace HernaniRacing
         void ControlsPanel(Rect r)
         {
             if (r.width < 420) return;
+            var cols = new[] { KeysDrive, KeysView, KeysMap };
+            int rows = 0;
+            foreach (var col in cols) rows = Mathf.Max(rows, col.Length);
             int fs = r.width >= 1150 ? 20 : (r.width >= 900 ? 17 : 14);
+            // que quepan todas las filas (cabecera + teclas + nota del mando) sin barras de desplazamiento
+            while (fs > 11 && 12 + fs * 1.75f * (rows + 1) + fs * 2.7f > r.height) fs--;
             if (keyFont != fs)
             {
                 keyFont = fs;
@@ -387,7 +422,6 @@ namespace HernaniRacing
             float rowH = fs * 1.75f;
             float capW = Mathf.Min(colW * 0.42f, fs * 6.2f);
             string[] heads = { "CONDUCIR", "CÁMARA Y MAPA", "PANTALLA DEL MAPA" };
-            var cols = new[] { KeysDrive, KeysView, KeysMap };
             for (int c = 0; c < 3; c++)
             {
                 float x = r.x + pad + c * (colW + colGap);
@@ -396,6 +430,7 @@ namespace HernaniRacing
                 y += fs * 1.75f;
                 foreach (var k in cols[c])
                 {
+                    if (k[0] == null) { GUI.Label(new Rect(x, y + rowH * 0.15f, colW, rowH), k[1], keyHead); y += rowH; continue; }   // subtítulo
                     GUI.Box(new Rect(x, y + 2, capW, rowH - 6), k[0], keyCap);
                     GUI.Label(new Rect(x + capW + 10, y, colW - capW - 10, rowH - 2), k[1], keyTxt);
                     y += rowH;
@@ -404,7 +439,34 @@ namespace HernaniRacing
             var padSt = new GUIStyle(small) { fontSize = Mathf.Max(13, fs - 3), wordWrap = true };
             padSt.normal.textColor = new Color(0.85f, 0.88f, 0.92f);
             GUI.Label(new Rect(r.x + pad, r.yMax - fs * 2.6f, r.width - 2 * pad, fs * 2.4f),
-                "Mando: gatillo derecho acelerar · gatillo izquierdo frenar · stick girar · A freno de mano · Y recolocar · X cámara · LB mirar atrás · Start pausa · cruceta ↑ zoom, ↓ flechas, ← suelo", padSt);
+                "Mando: gatillo derecho acelerar · gatillo izquierdo frenar · stick girar · A freno de mano · Y recolocar · X cámara · LB mirar atrás · Start pausa · cruceta ↑ zoom, ↓ flechas, ← suelo, → instrumentos", padSt);
+        }
+
+        /// <summary>Modo avión: vista automática (el paseo de siempre) o manual (se pilota con las teclas) y dónde se está.</summary>
+        void PlanePanel(Rect r)
+        {
+            GUI.Box(r, GUIContent.none, panel);
+            Accent(r);
+            GUI.Label(new Rect(r.x + 14, r.y + 8, r.width - 28, 28), "VISTA DEL AVIÓN", h2);
+            float bw = (r.width - 38) / 2f;
+            if (GUI.Button(new Rect(r.x + 14, r.y + 42, bw, 42), (planeManual ? "" : "● ") + "Automático", planeManual ? btn : onBtn)) { pending = () => { planeManual = false; SetPlaneMode(true); }; }
+            if (GUI.Button(new Rect(r.x + 24 + bw, r.y + 42, bw, 42), (planeManual ? "● " : "") + "Manual", planeManual ? onBtn : btn)) { pending = () => { planeManual = true; SetPlaneMode(true); }; }
+            string help = planeManual
+                ? "A D / ← → girar · W S / ↑ ↓ más o menos velocidad · Q E bajar / subir · Esc salir"
+                : "El avión pasea solo de barrio en barrio. Elige Manual para pilotarlo. Esc salir";
+            GUI.Label(new Rect(r.x + 14, r.y + 92, r.width - 28, 46), help, small);
+            // dónde estamos
+            if (fly != null && game.world != null)
+            {
+                if (planeTopo == null) planeTopo = new Toponymy(game.world);
+                Vector3 p = fly.Position;
+                var pl = planeTopo.At(p, -1);
+                string where = pl.Line2() + (string.IsNullOrEmpty(pl.monte) || pl.monteDist > 600f ? "" : " · Monte " + pl.monte);
+                GUI.Label(new Rect(r.x + 14, r.y + 140, r.width - 28, 50), "Sobrevolando " + where, txt);
+                GUI.Label(new Rect(r.x + 14, r.y + 194, r.width - 28, 46),
+                    Instruments.PointName(fly.HeadingDeg) + " " + Mathf.RoundToInt(fly.HeadingDeg) % 360 + "º · " + Mathf.RoundToInt(fly.SpeedKmh) + " km/h · " +
+                    Mathf.RoundToInt(fly.HeightAboveGround) + " m sobre el suelo" + (fly.AtEdge ? " · borde del mapa: volviendo" : ""), small);
+            }
         }
 
         /// <summary>Suelo: los colores de siempre o la ortofoto real de b5m (también con la tecla O en el juego).</summary>
